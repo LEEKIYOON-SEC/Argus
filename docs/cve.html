@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Argus · CVE 위협 인텔리전스</title>
+  <meta name="description" content="CVE별로 악용 여부, 공개 익스플로잇, 영향 제품과 지원 상태, 조치 방법, 탐지 룰을 출처와 함께 보여 주는 위협 인텔리전스 대시보드입니다.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%231f6feb' d='M12 1.5 3.5 5v6.2c0 5.4 3.6 10.4 8.5 11.8 4.9-1.4 8.5-6.4 8.5-11.8V5z'/%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round' d='m8.3 12 2.5 2.5 4.9-5'/%3E%3C/svg%3E">
+  <script>
+    try {
+      const t = localStorage.getItem('argus-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      if (localStorage.getItem('argus-nav') === 'rail') document.documentElement.dataset.nav = 'rail';
+    } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+ <div class="app" id="app">
+  <aside class="sidebar" id="sidebar" aria-label="메뉴">
+    <a href="cve.html" class="logo" title="Argus">
+      <span class="logo-badge">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+      </span>
+      <span class="logo-text">ARGUS<small>CVE 위협 인텔리전스</small></span>
+    </a>
+    <nav class="side-nav" role="tablist" aria-label="화면 전환">
+      <button type="button" class="view-tab side-link" role="tab" data-view="dashboard" title="대시보드">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span class="side-label">대시보드</span></button>
+      <div class="side-group">
+        <button type="button" class="view-tab side-link" role="tab" data-view="cves" title="CVE 목록">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span class="side-label">CVE 목록</span><span class="side-count" id="side-count"></span></button>
+      </div>
+      <button type="button" class="view-tab side-link" role="tab" data-view="lifecycle" title="제품 수명주기">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg><span class="side-label">제품 수명주기</span></button>
+      <button type="button" class="view-tab side-link" role="tab" data-view="sources" title="데이터 출처">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg><span class="side-label">데이터 출처</span></button>
+    </nav>
+    <div class="side-foot">
+      <div class="side-updated" title="CVE 데이터를 마지막으로 만든 시각"><span class="live-dot" aria-hidden="true"></span><span class="side-label">데이터 기준<b id="updated-time">-</b></span></div>
+      <a class="side-gh side-label" href="https://github.com/LEEKIYOON-SEC/Argus-AI-Threat-Intelligence" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <button type="button" class="rail-btn" id="rail-toggle" aria-label="메뉴 접기" title="메뉴 접기">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg>
+      </button>
+    </div>
+  </aside>
+  <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+
+  <div class="main">
+    <header class="topbar">
+      <button type="button" class="icon-btn menu-btn" id="menu-toggle" aria-label="메뉴 열기" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div class="search-wrap global-search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="text" class="search-input" id="search-input" autocomplete="off" spellcheck="false"
+               role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-pop"
+               aria-label="CVE 검색. 입력하면 결과를 미리 보여 주고, Enter를 누르면 목록으로 이동합니다"
+               placeholder="CVE ID · 제품 · 벤더 검색">
+        <kbd class="kbd" aria-hidden="true">/</kbd>
+        <button type="button" class="syntax-help" id="syntax-help" aria-label="검색 문법 보기" aria-expanded="false" title="검색 문법">?</button>
+        <div class="search-pop" id="search-pop" hidden>
+          <div class="search-recent" id="search-recent" hidden></div>
+          <ul class="search-suggest" id="search-suggest" role="listbox" aria-label="검색 문법 제안" hidden></ul>
+          <div class="search-preview" id="search-preview" hidden></div>
+        </div>
+      </div>
+      <button type="button" class="icon-btn" id="theme-toggle" aria-label="테마 전환">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+    </header>
+
+    <div class="syntax-card" id="syntax-card" hidden>
+      <p><b>검색 문법</b> 단어를 입력하면 CVE ID, 제목, 요약, 영향 제품, 패키지 이름에서 찾습니다. 조건을 여러 개 쓰면 모두 만족하는 CVE만 남습니다.</p>
+      <div class="syntax-grid">
+        <code>cvss:&gt;=9</code><span>CVSS 9.0 이상 (<code>&gt;</code> <code>&lt;</code> <code>&lt;=</code> <code>=</code>도 쓸 수 있습니다)</span>
+        <code>epss:&gt;=10</code><span>악용 확률 10% 이상. 상위 5%는 <code>has:high-epss</code></span>
+        <code>sev:critical</code><span>심각도 (critical · high · medium · low · none)</span>
+        <code>vendor:microsoft</code><span>벤더 이름에 포함 · <code>product:exchange</code> 제품 이름에 포함 · <code>cwe:502</code> 취약점 유형</span>
+        <code>has:cisa-kev</code><span>해당 정보가 있는 CVE. <code>kev</code> 악용 근거(CISA KEV · VulnCheck · SSVC active) · <code>cisa-kev</code> · <code>vulncheck-kev</code> · <code>ssvc-active</code> · <code>exploit</code> 공개 익스플로잇(EDB · MSF · PoC) · <code>weaponized</code> 무기화(MSF · EDB) · <code>metasploit</code> · <code>edb</code> · <code>poc</code> · <code>nuclei</code> · <code>auto</code> · <code>ransom</code> · <code>patch</code> · <code>detection</code> · <code>high-epss</code> · <code>critical</code> · <code>eol</code> · <code>ai</code> · <code>conflict</code></span>
+        <code>no:patch</code><span>출처가 '없음'으로 기록한 CVE. 예: OSV에 영향 패키지는 있지만 수정 버전 기록이 없음</span>
+        <code>unknown:eol</code><span>출처에 정보가 없어 미확인인 CVE. <code>no:</code>와 <code>unknown:</code>은 kev · cisa-kev · exploit · auto · ransom · eol · patch · detection · high-epss · critical에 씁니다</span>
+        <code>corr:kev_eol</code><span>신호 조합. kev_eol · kev_public_exploit · kev_automatable · kev_ransomware · high_epss_kev · critical_public_exploit · critical_eol · patch_exploited · exploit_no_fix · eol_no_fix</span>
+        <code>conflict:exploitation</code><span>출처 간 차이. exploitation(KEV와 SSVC) · exploit(공개 목록과 SSVC) · cvss(버전별 등급) · any</span>
+        <code>lifecycle:eol</code><span>영향 버전의 지원 상태. eol · extended · security · active · unknown</span>
+        <code>eol:&lt;90d</code><span>EOL까지 90일 미만 남은 버전 · <code>release:windows/10-22h2</code> 특정 릴리스</span>
+        <code>recent:24h</code><span>최근 24시간(또는 <code>7d</code>) 안에 알림을 보냈거나 상태가 바뀐 CVE</span>
+        <code>published:7d</code><span>최근 7일 안에 공개된 CVE</span>
+        <code>kev:7d</code><span>최근 7일 안에 CISA KEV에 등재된 CVE · <code>due:3d</code> KEV의 미 연방기관 기한(미국 연방 민간기관의 조치 기한)이 3일 안에 돌아오는 CVE</span>
+        <code>tier:t0</code><span>알림 등급. t0 관측된 악용 · t1 무기화 임박 · t2 관찰 · t3 신호 없음. <code>has:msf</code>는 예전 묶음(Metasploit · Exploit-DB · nuclei)</span>
+      </div>
+      <p class="syntax-eg">예: <code>has:cisa-kev lifecycle:eol</code> CISA KEV에 있으면서 영향 버전이 EOL인 CVE · <code>has:exploit no:patch</code> 공개 익스플로잇이 있는데 수정 버전 기록이 없는 CVE</p>
+    </div>
+
+    <main class="content" id="content">
+     <!-- ===================== 대시보드 ===================== -->
+     <div id="view-dashboard" class="view">
+      <section class="page-head">
+        <h1>대시보드</h1>
+        <p class="page-meta" id="dash-asof">-</p>
+        <button type="button" class="help-btn" aria-expanded="false" aria-controls="dash-help">설명</button>
+      </section>
+      <div class="help-card" id="dash-help" hidden>
+        <ul>
+          <li>숫자를 누르면 같은 조건의 CVE 목록이 열립니다. 화면의 숫자와 목록 건수는 같습니다.</li>
+          <li>각 항목은 출처에서 확인된 경우에만 '있음'으로 표시합니다. 출처에 정보가 없으면 '미확인'으로 두고 '없음'과 구분합니다.</li>
+          <li>여러 지표를 합친 위험 점수는 만들지 않습니다.</li>
+          <li>'최근 7일'은 데이터 기준일을 포함한 7일입니다. KEV 등재일은 CISA KEV 카탈로그 값을 씁니다.</li>
+        </ul>
+        <p class="help-meta" id="dash-meta"></p>
+      </div>
+
+      <section class="kpi-strip" id="dash-kpis" aria-label="주요 지표">
+        <div class="kpi"><span class="kpi-label">추적 중 CVE</span><span class="kpi-value" id="stat-total">-</span></div>
+        <div class="kpi"><span class="kpi-label">24시간 알림·갱신</span><span class="kpi-value" id="stat-24h">-</span><span class="kpi-sub" id="stat-24h-sub">-</span></div>
+        <div class="kpi"><span class="kpi-label">CISA KEV</span><span class="kpi-value" id="stat-kev">-</span></div>
+        <div class="kpi"><span class="kpi-label">무기화</span><span class="kpi-value" id="stat-weapon">-</span></div>
+        <div class="kpi"><span class="kpi-label">공개 PoC</span><span class="kpi-value" id="stat-poc">-</span></div>
+        <div class="kpi"><span class="kpi-label">AI 발견</span><span class="kpi-value" id="stat-ai">-</span></div>
+      </section>
+
+      <section class="today" id="dash-today" aria-label="최근 동향"></section>
+
+      <section class="dash-main">
+        <div class="panel corr-panel">
+          <div class="panel-head"><h2>신호 조합</h2><span class="panel-note">두 신호가 함께 확인된 CVE 수입니다. 오른쪽은 앞 신호 가운데 비율입니다.</span></div>
+          <ol class="corr-list" id="dash-corr"></ol>
+        </div>
+        <div class="dash-side">
+          <div class="panel trend-panel">
+            <div class="panel-head"><h2>30일 CVE 공개</h2><span class="panel-note" id="overview-note">공개일 기준</span></div>
+            <div class="overview" id="dash-overview"></div>
+          </div>
+          <div class="panel fold-panel" id="dash-folds" aria-label="더 보기">
+            <button type="button" class="fold-btn" aria-expanded="false" aria-controls="fold-matrix"><span>전체 조합 표</span><small>신호 9개 · 36칸</small></button>
+            <button type="button" class="fold-btn" aria-expanded="false" aria-controls="fold-combos"><span>많이 겹치는 조합</span><small id="fold-combos-sum"></small></button>
+            <button type="button" class="fold-btn" aria-expanded="false" aria-controls="fold-sev"><span>심각도 분포</span><small id="fold-sev-sum"></small></button>
+            <button type="button" class="fold-btn" aria-expanded="false" aria-controls="fold-products"><span>영향 제품 순위</span><small id="fold-products-sum"></small></button>
+            <button type="button" class="fold-btn" aria-expanded="false" aria-controls="fold-recent"><span>최근 공개 CVE</span><small id="fold-recent-sum"></small></button>
+          </div>
+        </div>
+      </section>
+
+      <section class="dash-more">
+        <div class="panel fold-body" id="fold-matrix" hidden>
+          <div class="panel-head"><h2>전체 조합 표</h2><span class="panel-note">칸은 두 신호가 함께 '있음'인 CVE 수, 줄과 칸 이름 아래 숫자는 그 신호의 전체 건수입니다. 누르면 목록이 열립니다.</span></div>
+          <div class="matrix-wrap" id="dash-matrix"></div>
+        </div>
+        <div class="panel fold-body" id="fold-combos" hidden>
+          <div class="panel-head"><h2>많이 겹치는 조합</h2><span class="panel-note">전체 조합 표에서 건수가 많은 순서입니다.</span></div>
+          <div class="rel-chips" id="dash-rel-chips" aria-label="많이 겹치는 조합"></div>
+        </div>
+        <div class="panel fold-body" id="fold-sev" hidden>
+          <div class="panel-head"><h2>심각도 분포</h2><span class="panel-note">CVSS 기본 점수의 대표값 기준입니다.</span></div>
+          <div id="severity-dist"></div>
+        </div>
+        <div class="panel fold-body" id="fold-products" hidden>
+          <div class="panel-head"><h2>영향 제품 순위</h2><span class="panel-note">누르면 그 제품의 목록이 열립니다.</span></div>
+          <div id="product-dist"></div>
+        </div>
+        <div class="panel fold-body" id="fold-recent" hidden>
+          <div class="panel-head"><h2>최근 공개 CVE</h2><span class="panel-note">CVE 공개일 순입니다.</span></div>
+          <ol class="recent-list" id="dash-recent"></ol>
+        </div>
+      </section>
+     </div>
+
+     <!-- ===================== CVE 목록 ===================== -->
+     <div id="view-cves" class="view" hidden>
+      <section class="page-head list-head">
+        <h1>CVE 목록</h1>
+        <p class="page-meta" id="list-count"></p>
+        <label class="sort-pick">정렬
+          <select id="sort-select" aria-label="정렬 기준">
+            <option value="tier">알림 등급 → 알림 시각</option>
+            <option value="date">알림 시각 최신순</option>
+            <option value="cvss">CVSS 높은 순</option>
+            <option value="epss">EPSS 높은 순</option>
+            <option value="id">CVE 번호순</option>
+          </select>
+        </label>
+        <details class="menu export-menu">
+          <summary>내보내기</summary>
+          <div class="menu-list">
+            <button type="button" class="export-btn" onclick="exportData('csv')" title="지금 목록을 CSV로 저장">CSV</button>
+            <button type="button" class="export-btn" onclick="exportData('json')" title="지금 목록을 JSON으로 저장">JSON</button>
+            <button type="button" class="export-btn" onclick="exportData('stix')" title="지금 목록을 STIX 2.1로 저장">STIX 2.1</button>
+            <button type="button" class="export-btn" onclick="exportHighRiskByMonth()" title="선택한 기간의 Critical · High만 CSV로 저장">고위험만 CSV</button>
+          </div>
+        </details>
+        <button type="button" class="help-btn" aria-expanded="false" aria-controls="list-help">설명</button>
+      </section>
+      <div class="help-card" id="list-help" hidden>
+        <ul>
+          <li>기본 정렬은 알림 등급(관측된 악용 → 무기화 임박 → 관찰 → 신호 없음) 다음 알림 시각 순입니다. 등급이 바뀌는 곳에 구분 줄이 있습니다.</li>
+          <li>제목 아래 줄은 취약점 유형 · 영향 제품 · 요약 앞부분입니다. 유형에 마우스를 올리면 한 줄 풀이가 보입니다.</li>
+          <li>빈칸은 정보가 없거나 미확인인 경우입니다. 출처별 상태는 상세에서 볼 수 있습니다.</li>
+          <li>제목과 요약은 AI가 번역·요약한 글입니다. 원문은 상세의 기술 정보에 있습니다.</li>
+          <li>넓은 화면에서는 행을 누르면 오른쪽에 상세가 열립니다. 행에서 ↑ ↓ 키로 다음 CVE로 넘어갈 수 있습니다.</li>
+        </ul>
+      </div>
+
+      <!-- 조건 줄 세 줄 — 심각도 / 조건 칩(늘 모두 펼침) / 점수 · 필터. 넓은 목록과 나란히 보기가 같다 -->
+      <section class="filter-bar">
+        <div class="filter-row primary">
+          <div class="seg" id="severity-seg" role="group" aria-label="심각도">
+            <button type="button" class="seg-btn sev-all" id="sev-all" title="모든 심각도">전체</button>
+            <button class="seg-btn active sev-c-critical" data-severity="Critical"><span class="dot" style="background:var(--sev-critical)"></span>Critical</button>
+            <button class="seg-btn active sev-c-high" data-severity="High"><span class="dot" style="background:var(--sev-high)"></span>High</button>
+            <button class="seg-btn active sev-c-medium" data-severity="Medium"><span class="dot" style="background:var(--sev-medium)"></span>Medium</button>
+            <button class="seg-btn active sev-c-low" data-severity="Low"><span class="dot" style="background:var(--sev-low)"></span>Low</button>
+          </div>
+        </div>
+        <div class="filter-row chip-row">
+          <div class="quick-chips" id="quick-chips" role="group" aria-label="조건. 누르면 검색어에 들어갑니다"></div>
+        </div>
+        <div class="filter-row score-row">
+          <label class="num-filter" title="이 값 이상만 (빈칸이면 전체)">CVSS ≥
+            <input type="number" id="cvss-min" min="0" max="10" step="0.1" placeholder="—">
+          </label>
+          <label class="num-filter" title="향후 30일 안의 악용 시도 확률이 이 값 이상만 (10은 10% 이상)">EPSS ≥
+            <input type="number" id="epss-min" min="0" max="100" step="1" placeholder="—"><span class="unit">%</span>
+          </label>
+          <button type="button" class="filter-toggle" id="filter-toggle" aria-expanded="false" aria-controls="filter-more">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
+            필터<span class="count" id="filter-count" hidden>0</span>
+          </button>
+        </div>
+
+        <div class="active-chips" id="active-chips" hidden></div>
+
+        <div class="filter-more" id="filter-more" hidden>
+          <div class="filter-group">
+            <span class="filter-legend">출처별</span>
+            <div class="quick-chips" id="source-chips" role="group" aria-label="출처별 조건. 누르면 검색어에 들어갑니다"></div>
+          </div>
+          <div class="filter-group">
+            <span class="filter-legend">범위</span>
+            <div class="filter-row">
+              <select class="filter-select" id="vendor-filter" title="벤더로 좁히기"><option value="">전체 벤더</option></select>
+              <select class="filter-select" id="product-filter" title="제품으로 좁히기"><option value="">전체 제품</option></select>
+              <select class="filter-select" id="month-filter" title="알림 시각 기준 월"><option value="">전체 기간</option></select>
+              <select class="filter-select" id="day-filter" title="알림 시각 기준 날짜 (월을 고르면 그 달의 날짜만)"><option value="">전체 일자</option></select>
+              <select class="filter-select" id="kernel-filter" title="Linux 커널 CVE는 제품이 모두 Linux로만 적혀 있어 구분이 안 됩니다. 커널은 CVE마다가 아니라 패키지를 한 번 올려서 고치므로, 나머지를 훑어볼 때는 빼고 보는 편이 편합니다.">
+                <option value="">커널 포함</option>
+                <option value="hide">커널 제외</option>
+                <option value="only">커널만</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="loading" id="loading">불러오는 중…</div>
+
+      <div class="table-wrap cve-list">
+        <div class="table-scroll">
+          <table class="cve-table">
+            <thead>
+              <tr>
+                <th class="h-id"><button type="button" class="th-sort" data-sort="id">CVE</button><span class="th-sep">·</span><button type="button" class="th-sort" data-sort="date" title="알림 시각 순">알림</button></th>
+                <th class="h-sum">요약 · 영향 제품 <span class="th-note" title="제목과 요약은 AI가 번역·요약한 글입니다. 원문은 상세의 기술 정보에 있습니다">AI 번역</span></th>
+                <th class="h-score"><button type="button" class="th-sort" data-sort="cvss">CVSS</button><span class="th-sep">·</span><button type="button" class="th-sort" data-sort="epss">EPSS</button></th>
+                <th class="h-threat" title="악용 근거 · 공개 익스플로잇 · 자동화 가능. 출처에서 확인된 것만 표시합니다. 영향 버전의 지원 상태(endoflife.date)를 알면 함께 적습니다">위협 신호</th>
+                <th class="h-def" title="공개 탐지 룰 · 점검 템플릿과 OSV 수정 버전">탐지 · 수정</th>
+              </tr>
+            </thead>
+            <tbody id="cve-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="pagination">
+        <button id="prev-btn" onclick="changePage(-1)">&laquo; 이전</button>
+        <span class="page-info" id="page-info">-</span>
+        <button id="next-btn" onclick="changePage(1)">다음 &raquo;</button>
+      </div>
+     </div>
+
+     <!-- ===================== CVE 상세 (넓은 화면에서는 목록 오른쪽) ===================== -->
+     <div id="view-detail" class="view" hidden>
+      <div class="detail-bar" id="detail-bar">
+        <button type="button" class="back-btn" id="detail-back" onclick="closeModal()"><span aria-hidden="true">←</span> <span id="detail-origin">목록</span></button>
+        <span class="detail-pos" id="detail-pos"></span>
+        <span class="detail-steps">
+          <button type="button" class="nav-btn" id="detail-prev" title="이전 CVE (←)" disabled>‹ 이전</button>
+          <button type="button" class="nav-btn" id="detail-next" title="다음 CVE (→)" disabled>다음 ›</button>
+        </span>
+        <span class="bar-gap"></span>
+        <button type="button" class="share-btn" id="full-btn" title="상세를 전체 화면으로 보기">전체 화면</button>
+        <button type="button" class="share-btn" id="share-btn" title="이 CVE 상세의 링크를 복사">링크 복사</button>
+        <button type="button" class="share-btn close-btn" id="close-btn" aria-label="상세 닫기" title="닫기 (Esc)">✕</button>
+      </div>
+      <article class="detail-sheet" id="modal-overlay" aria-labelledby="modal-title">
+        <header class="modal-hero" id="modal-hero">
+          <div class="modal-hero-top">
+            <span class="m-id" id="modal-id">CVE</span>
+            <span id="modal-sev-badge"></span>
+          </div>
+          <h2 class="m-title"><span id="modal-title">-</span><span class="h-type" id="modal-type" hidden></span></h2>
+          <p class="hero-summary" id="modal-summary"></p>
+          <div class="modal-scores" id="modal-scores"></div>
+          <div class="sig-badges" id="modal-signals"></div>
+        </header>
+        <div class="modal-body" id="modal-body"><p class="dash-wait">데이터를 불러오는 중…</p></div>
+      </article>
+      <div class="detail-bottom" id="detail-bottom">
+        <button type="button" class="nav-btn" id="detail-prev-b" disabled>‹ 이전</button>
+        <span class="detail-pos" id="detail-pos-b"></span>
+        <button type="button" class="nav-btn" id="detail-next-b" disabled>다음 ›</button>
+      </div>
+     </div>
+
+     <!-- ===================== 제품 수명주기 ===================== -->
+     <div id="view-lifecycle" class="view" hidden>
+      <section class="page-head">
+        <h1>제품 수명주기</h1>
+        <p class="page-meta" id="lc-asof">제품 버전별 지원 일정</p>
+        <button type="button" class="help-btn" aria-expanded="false" aria-controls="lc-help">설명</button>
+      </section>
+      <div class="help-card" id="lc-help" hidden>
+        <ul>
+          <li><a href="https://endoflife.date/" target="_blank" rel="noopener noreferrer">endoflife.date</a>가 다루는 제품 전체의 버전별 지원 일정입니다. 날짜와 단계 이름은 그대로 옮기고, 값이 없으면 '-'로 둡니다.</li>
+          <li>상태는 오늘 날짜로 계산합니다. ACTIVE 기본 지원 · SECURITY 보안 지원 · EXTENDED EOL 뒤 확장 지원(유료 포함) · EOL 지원 종료 · UNKNOWN 날짜가 없거나 제조사 단계 이름으로 정할 수 없음.</li>
+          <li>"90일 안에 EOL"은 EOL 날짜가 내일부터 90일 안에 오는 버전이 있는 제품입니다. 오늘이 EOL인 버전은 이미 EOL로 봅니다.</li>
+          <li>CVE와 연결한 지원 상태는 CVE 상세에서 보여 줍니다.</li>
+        </ul>
+        <p class="help-meta" id="lc-meta"></p>
+      </div>
+
+      <section class="lc-bar" aria-label="제품 찾기">
+        <div class="search-wrap lc-find">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="search" class="search-input" id="lc-search" autocomplete="off" spellcheck="false" aria-label="제품 검색"
+                 placeholder="제품 이름 · 별칭 · 버전 (예: k8s, 22.04)">
+        </div>
+        <button type="button" class="lc-soon-btn" id="lc-soon" aria-pressed="false" title="EOL 날짜가 90일 안에 오는 버전이 있는 제품만">
+          <span class="lc-soon-box" aria-hidden="true"></span>90일 안에 EOL<b id="lc-soon-n">-</b>
+        </button>
+        <p class="lc-count" id="lc-count" aria-live="polite"></p>
+      </section>
+
+      <div class="lc-cats" id="lc-cats"></div>
+     </div>
+
+     <!-- ===================== 데이터 출처 ===================== -->
+     <div id="view-sources" class="view" hidden>
+      <section class="page-head">
+        <h1>데이터 출처</h1>
+        <p class="page-meta" id="src-meta"></p>
+        <button type="button" class="help-btn" aria-expanded="false" aria-controls="src-help">설명</button>
+      </section>
+      <div class="help-card" id="src-help" hidden>
+        <ul>
+          <li>'기록 있는 CVE'는 추적 중인 CVE 가운데 그 출처에 기록이 있는 건수입니다. 출처에 기록이 없는 CVE는 '없음'이 아니라 '미확인'으로 봅니다.</li>
+          <li>'예약 주기'는 Argus가 출처에서 데이터를 다시 받도록 걸어 둔 주기입니다. CVE 목록과 대시보드의 데이터는 매시 18분에 예약된 작업이 내보낼 때 바뀝니다.</li>
+          <li>익스플로잇 원문(Exploit-DB · PoC)과 점검 템플릿(nuclei)은 싣지 않고 링크만 둡니다. 탐지 룰 본문은 룰마다 작성자와 라이선스를 함께 적습니다.</li>
+        </ul>
+      </div>
+      <section class="panel src-panel">
+        <div class="table-scroll"><table class="src-reg" id="src-registry"></table></div>
+        <p class="src-foot">예약은 GitHub Actions 기준이라 GitHub 부하에 따라 늦게 시작하거나 건너뛸 수 있어, 실제 간격은 이보다 깁니다. 화면에 반영된 시각은 제목 옆 '기준' 시각입니다.</p>
+      </section>
+      <section class="panel" id="src-terms">
+        <div class="panel-head"><h2>약관 원문</h2></div>
+        <div class="terms-item" id="terms-cve">
+          <h3>CVE Program 이용약관 · <a href="https://www.cve.org/Legal/TermsOfUse" target="_blank" rel="noopener noreferrer">cve.org ↗</a></h3>
+          <p lang="en">Copyright © 1999-2026, The MITRE Corporation. CVE is a trademark and the CVE logo is a registered trademark of The MITRE Corporation.</p>
+          <blockquote lang="en">CVE Usage: MITRE hereby grants you a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare derivative works of, publicly display, publicly perform, sublicense, and distribute Common Vulnerabilities and Exposures (CVE™). Any copy you make for such purposes is authorized provided that you reproduce MITRE's copyright designation and this license in any such copy.</blockquote>
+        </div>
+        <div class="terms-item" id="terms-cwe">
+          <h3>CWE 이용약관 · <a href="https://cwe.mitre.org/about/termsofuse.html" target="_blank" rel="noopener noreferrer">cwe.mitre.org ↗</a></h3>
+          <p lang="en">Copyright © 2006–2026, The MITRE Corporation. CWE, CWSS, CWRAF, and the CWE logo are trademarks of The MITRE Corporation.</p>
+          <blockquote lang="en">CWE™ is free to use by any organization or individual for any research, development, and/or commercial purposes, per these CWE Terms of Use. Accordingly, The MITRE Corporation hereby grants you a non-exclusive, royalty-free license to use CWE for research, development, and commercial purposes. Any copy you make for such purposes is authorized on the condition that you reproduce MITRE’s copyright designation and this license in any such copy. CWE is a trademark of The MITRE Corporation.</blockquote>
+          <p class="terms-src">취약점 유형의 공식 영문 이름 · 추상화 수준에 씁니다. 한국어 이름 · 한 줄 풀이는 MITRE 설명을 바탕으로 Argus가 쓴 글입니다.</p>
+        </div>
+        <details class="terms-item" id="terms-et">
+          <summary><h3>Emerging Threats Open 라이선스 (BSD)</h3><span class="terms-more"><span class="if-closed">전문 보기</span><span class="if-open">접기</span></span></summary>
+          <pre lang="en">Copyright (c) 2003-2026, Emerging Threats
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+* Neither the name of the nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS AS IS AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.</pre>
+          <p class="terms-src">원문: <a href="https://rules.emergingthreats.net/open/suricata-7.0/LICENSE" target="_blank" rel="noopener noreferrer">rules.emergingthreats.net ↗</a> · SID 2000000–2799999 룰에 적용</p>
+        </details>
+      </section>
+     </div>
+    </main>
+
+    <footer class="site-footer" id="site-notice">
+      <p class="notice-line" lang="en">
+        <span>This product uses the NVD API but is not endorsed or certified by the NVD.</span>
+        <span>This product uses <a href="https://vulncheck.com/kev" target="_blank" rel="noopener noreferrer">VulnCheck KEV</a>.</span>
+      </p>
+      <p class="notice-line">
+        <span>CVE 레코드: Copyright © 1999-2026, The MITRE Corporation.</span>
+        <span>취약점 유형(CWE): Copyright © 2006–2026, The MITRE Corporation.</span>
+        <span>제품 수명주기: Copyright 2020 endoflife.date contributors (<a href="https://github.com/endoflife-date/endoflife.date/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">MIT</a>)</span>
+        <span>EPSS: <a href="https://www.first.org/epss/" target="_blank" rel="noopener noreferrer">FIRST.org</a></span>
+      </p>
+      <p class="notice-line">
+        <span>출처 데이터를 모아 보여 주는 화면입니다. 대응하기 전에 제조사 권고문을 확인하세요.</span>
+        <span>출처별 이용 조건: <a href="?view=sources" onclick="openSources(event)">데이터 출처</a></span>
+      </p>
+    </footer>
+  </div>
+ </div>
+
+  <script src="js/lifecycle.js"></script>
+  <script src="js/context.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/cwe-data.js"></script>
+  <script src="js/cwe.js"></script>
+  <script src="js/viewmodel.js"></script>
+  <script src="js/cve-dashboard.js"></script>
+  <script src="js/cve-detail.js"></script>
+  <script src="js/dashboard-view.js"></script>
+  <script src="js/lifecycle-view.js"></script>
+  <script src="js/sources-view.js"></script>
+</body>
+</html>

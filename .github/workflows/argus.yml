@@ -1,0 +1,118 @@
+name: Argus Bulk Lane
+
+on:
+  schedule:
+     - cron: '18 * * * *'
+  workflow_dispatch:
+    inputs:
+      full_export:
+        description: '전량 export (증분 대신 90일 전체를 다시 생성)'
+        type: boolean
+        default: false
+ 
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: argus-pipeline
+  cancel-in-progress: false
+ 
+jobs:
+  argus-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      artifact: ${{ steps.carry.outcome }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Resolve cache day
+        id: cacheday
+        run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache signal indexes
+        uses: actions/cache@v4
+        with:
+          path: .cache/rulesets
+          key: signals-bulk-${{ steps.cacheday.outputs.day }}
+          restore-keys: |
+            signals-bulk-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run bulk lane
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ARGUS_STORE: turso
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          VULNCHECK_API_KEY: ${{ secrets.VULNCHECK_API_KEY }}
+        run: python src/main.py
+ 
+      - name: Export dashboard data
+        if: always()
+        env:
+          ARGUS_STORE: turso
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ARGUS_FULL_EXPORT: ${{ inputs.full_export && '1' || '0' }}
+        run: python src/export_dashboard_data.py
+
+      - name: Carry forward published data
+        id: carry
+        if: always()
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ARGUS_FRESH_FILES: cves.json,stats.json,cve-products.json,cve-facts.json
+        run: python src/fetch_published.py
+
+      - name: Set up Node
+        if: always() && steps.carry.outcome == 'success'
+        continue-on-error: true
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build CVE context
+        if: always() && steps.carry.outcome == 'success'
+        continue-on-error: true
+        run: node src/build_context.js
+
+      - name: Upload Pages artifact
+        if: always() && steps.carry.outcome == 'success'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: argus-run
+    if: always() && needs.argus-run.outputs.artifact == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
