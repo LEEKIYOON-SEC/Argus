@@ -5,6 +5,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from logger import logger
 
 RULE_KEYS = ("network", "sigma", "yara", "nuclei", "splunk")
+SETTLE = datetime.timedelta(hours=1)
 
 
 def _when(ts) -> Optional[datetime.datetime]:
@@ -15,34 +16,38 @@ def _when(ts) -> Optional[datetime.datetime]:
     return d if d.tzinfo else d.replace(tzinfo=datetime.timezone.utc)
 
 
-def due(rows: Dict[str, Dict], grown: List[str], built_at: str) -> Tuple[List[Dict], List[Dict]]:
-    """grown 가운데 추적 중이고 색인을 만든 뒤로 다시 보지 않은 CVE — (룰이 없던 것, 이미 룰이 있던 것)."""
+def _order(row: Dict):
+    return (not row.get("is_kev"), -(row.get("cvss_score") or 0), -(row.get("epss_score") or 0), row["id"])
+
+
+def due(rows: Dict[str, Dict], built_at: str,
+        missing: Callable[[str, object], bool]) -> Tuple[List[Dict], List[Dict]]:
     built = _when(built_at)
     if built is None:
         return [], []
     fresh: List[Dict] = []
     known: List[Dict] = []
-    for cve in grown:
-        row = rows.get(cve)
-        if not row:
-            continue
+    for row in rows.values():
         last = _when(row.get("last_rule_check_at"))
-        if last is not None and last >= built:
+        if last is not None and last >= built + SETTLE:
+            continue
+        if not missing(row["id"], row.get("rules_snapshot")):
             continue
         (known if row.get("has_official_rules") else fresh).append(row)
-    return fresh, known
+    return sorted(fresh, key=_order), sorted(known, key=_order)
 
 
-def plan(db, grown: List[str], built_at: str, max_recheck: int) -> Tuple[List[Dict], List[Dict]]:
-    """알림을 보낼 수 있는 재확인 대상(룰이 늘어난 CVE 먼저, 남는 자리는 기존 대상)과 조용히 바꿀 대상."""
+def plan(db, ids: List[str], built_at: str, max_recheck: int,
+         missing: Callable[[str, object], bool]) -> Tuple[List[Dict], List[Dict]]:
     fresh: List[Dict] = []
     known: List[Dict] = []
-    if grown and built_at:
+    if ids and built_at:
         try:
-            rows, _ = db.get_cves(grown)
-            fresh, known = due(rows, grown, built_at)
+            fresh, known = due(db.get_rule_rows(ids), built_at, missing)
+            logger.info(f"색인에는 있는데 화면에 없는 룰 — 룰이 없던 CVE {len(fresh):,}건 · "
+                        f"이미 룰이 있던 CVE {len(known):,}건")
         except Exception as e:
-            logger.warning(f"룰이 늘어난 CVE 조회 실패({e}) — 기존 재확인만 한다")
+            logger.warning(f"룰이 빠진 CVE 조회 실패({e}) — 기존 재확인만 한다")
     fresh = fresh[:max(0, max_recheck)]
     picked = {r["id"] for r in fresh}
     rest = max_recheck - len(fresh)
@@ -54,7 +59,6 @@ def refresh_known(db, search: Callable[[str], Tuple[Dict, bool]], rows: List[Dic
                   now: Callable[[], str], soon: Callable[[], str],
                   deadline_ts: Optional[float] = None,
                   clock: Optional[Callable[[], float]] = None) -> int:
-    """이미 룰이 있던 CVE 의 스냅샷을 지금 색인으로 다시 만든다. 알림은 보내지 않는다. 바꾼 건수를 돌려준다."""
     clock = clock or time.time
     done = 0
     for row in rows:

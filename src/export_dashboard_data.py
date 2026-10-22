@@ -103,8 +103,6 @@ _EPSS_MIN_ROWS = 100_000
 
 
 def refresh_epss(entries: list, epss) -> int:
-    """전량 EPSS 로 점수 · 백분위를 다시 채운다. 파일에 없는 CVE 는 기존 값을 둔다(없다고 0 으로 만들지 않는다).
-    파일이 없거나 너무 작으면 아무것도 바꾸지 않는다. 바뀐 행 수를 돌려준다."""
     if not epss or len(epss) < _EPSS_MIN_ROWS:
         return 0
     changed = 0
@@ -120,8 +118,6 @@ def refresh_epss(entries: list, epss) -> int:
 
 
 def normalize_rules(entries: list) -> int:
-    """이월된 행까지 모든 행의 룰 표기를 맞춘다 — 증분 export 는 바뀐 행만 DB 에서 다시 읽기 때문이다.
-    여러 번 적용해도 결과가 같다. 바뀐 행 수를 돌려준다."""
     changed = 0
     for e in entries:
         rules = e.get("rules")

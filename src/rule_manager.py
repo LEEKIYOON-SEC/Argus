@@ -13,11 +13,13 @@ from logger import logger
 _INDEX_LOCK = threading.Lock()
 _INDEX: Optional[Dict[str, List[Dict]]] = None
 _INDEX_OK = False
-_META: Dict = {"generated_at": "", "grown": []}
+_META: Dict = {"generated_at": ""}
 
 _LOCAL = os.path.join(pages.DATA_DIR, "detection-rules.json")
 
 _MAX_RULE_CHARS = 6000
+_NETWORK_MAX = 3
+_SID = re.compile(r"\bsid\s*:\s*(\d+)")
 
 
 def _index() -> Dict[str, List[Dict]]:
@@ -34,15 +36,19 @@ def index_ok() -> bool:
     _index()
     return _INDEX_OK
 
-def grown() -> Tuple[List[str], str]:
+
+def built_at() -> str:
     _index()
-    return list(_META["grown"]), _META["generated_at"]
+    return _META["generated_at"]
+
+
+def indexed_ids() -> List[str]:
+    return list(_index())
 
 
 def _keep_meta(payload: Dict) -> None:
-    ids = payload.get("grown")
-    _META["grown"] = [str(c).upper() for c in ids] if isinstance(ids, list) else []
     _META["generated_at"] = str(payload.get("generated_at") or "")
+
 
 def _load() -> Tuple[Dict[str, List[Dict]], bool]:
     try:
@@ -101,6 +107,48 @@ def _fetch_text(entry: Dict) -> Optional[str]:
         return None
 
 
+def _pack(entry: Dict) -> Dict:
+    return rule_license.apply({
+        "source": entry.get("source", ""),
+        "engine": entry.get("engine", ""),
+        "url": entry.get("url", ""),
+        "author": entry.get("author", ""),
+        "license_url": entry.get("license_url", ""),
+    })
+
+
+Pick = Tuple[Dict, Dict]
+
+
+def _choose(entries: List[Dict]) -> Tuple[List[Pick], Dict[str, Pick]]:
+    queues: Dict[str, List[Pick]] = {}
+    single: Dict[str, Pick] = {}
+    for entry in entries:
+        engine = entry.get("engine", "")
+        packed = _pack(entry)
+        if packed.get("link_only"):
+            single.setdefault(engine, (entry, packed))
+        elif engine in rule_license.NETWORK_ENGINES:
+            queues.setdefault(engine, []).append((entry, packed))
+        elif engine in ("sigma", "yara", "splunk"):
+            if engine not in single or single[engine][1].get("link_only"):
+                single[engine] = (entry, packed)
+    network: List[Pick] = []
+    cap = max(_NETWORK_MAX, len(queues))
+    for depth in range(max((len(q) for q in queues.values()), default=0)):
+        network.extend(q[depth] for q in queues.values() if depth < len(q))
+    return network[:cap], single
+
+
+def rule_key(rule: Dict) -> Tuple[str, str]:
+    engine = rule.get("engine") or ""
+    if engine in rule_license.NETWORK_ENGINES:
+        code = (rule.get("code") or "").strip()
+        m = _SID.search(code)
+        return engine, f"{rule.get('source') or ''}:sid{m.group(1)}" if m else code
+    return engine, rule.get("url") or ""
+
+
 class RuleManager:
     def __init__(self):
         logger.debug("RuleManager 초기화 (인덱스 조회 전용)")
@@ -119,35 +167,23 @@ class RuleManager:
             return rules, True
 
         missed = 0
-        for entry in entries:
-            engine = entry.get("engine", "")
-            packed = rule_license.apply({
-                "source": entry.get("source", ""),
-                "engine": engine,
-                "url": entry.get("url", ""),
-                "author": entry.get("author", ""),
-                "license_url": entry.get("license_url", ""),
-            })
+        network, single = _choose(entries)
+        for entry, packed in network:
+            code = _fetch_text(entry)
+            if code:
+                rules["network"].append({**packed, "code": code})
+            else:
+                missed += 1
+        for engine, (entry, packed) in single.items():
             if packed.get("link_only"):
-                if not rules.get(engine):
-                    rules[engine] = packed
-            elif engine in rule_license.NETWORK_ENGINES:
-                if len(rules["network"]) >= 3:
-                    continue
-                code = _fetch_text(entry)
-                if code:
-                    rules["network"].append({**packed, "code": code})
-                else:
-                    missed += 1
-            elif engine in ("sigma", "yara", "splunk"):
-                if rules.get(engine) and not rules[engine].get("link_only"):
-                    continue
-                code = _fetch_text(entry)
-                if code:
-                    rules[engine] = {**packed, "code": code,
-                                     "author": packed["author"] or author_of(code)}
-                else:
-                    missed += 1
+                rules[engine] = packed
+                continue
+            code = _fetch_text(entry)
+            if code:
+                rules[engine] = {**packed, "code": code,
+                                 "author": packed["author"] or author_of(code)}
+            else:
+                missed += 1
 
         if missed:
             logger.warning(f"  {cve_id}: 색인에 있는 룰 {missed}건의 원문을 받지 못했다 "
@@ -160,3 +196,12 @@ class RuleManager:
         if found:
             logger.info(f"  ✅ 공개 룰: {cve_id} — {', '.join(found)}")
         return rules, True
+
+
+def missing(cve_id: str, snapshot) -> bool:
+    network, single = _choose(RuleManager.lookup(cve_id))
+    want = {rule_key(entry) for entry, _ in network + list(single.values())}
+    snap = snapshot if isinstance(snapshot, dict) else {}
+    have = {rule_key(r) for r in (snap.get("network") or []) if isinstance(r, dict)}
+    have.update(rule_key(r) for k, r in snap.items() if k != "network" and isinstance(r, dict))
+    return bool(want - have)

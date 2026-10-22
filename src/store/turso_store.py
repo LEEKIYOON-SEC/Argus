@@ -252,6 +252,24 @@ class TursoStore(Store):
         logger.info(f"공개 룰 재확인 대상 {len(out)}건")
         return out
 
+    _RULE_COLS = ("id", "cvss_score", "epss_score", "is_kev",
+                  "has_official_rules", "rules_snapshot", "last_rule_check_at")
+
+    def get_rule_rows(self, cve_ids, days: int = 90) -> Dict[str, Dict]:
+        ids = [str(c) for c in cve_ids if c]
+        cutoff = _days_ago(days)
+        rows: Dict[str, Dict] = {}
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            marks = ",".join("?" * len(chunk))
+            found = self._query(
+                f"SELECT {', '.join(self._RULE_COLS)} FROM cves WHERE id IN ({marks}) "
+                "AND last_alert_state IS NOT NULL AND updated_at >= ?", (*chunk, cutoff))
+            for values in found:
+                row = self._row(values, self._RULE_COLS)
+                rows[row["id"]] = row
+        return rows
+
     _STAT_COLS = ("tier", "rows", "alerted", "fired", "vendor",
                   "published", "translated", "cvss")
 

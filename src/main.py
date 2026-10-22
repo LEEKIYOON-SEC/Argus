@@ -30,8 +30,10 @@ from notifier import SlackNotifier
 from rate_limiter import (gemini_backoff, gemini_error_kind, rate_limit_manager)
 from report import make_analysis
 from rule_manager import RuleManager
-from rule_manager import grown as rule_manager_grown
+from rule_manager import built_at as rule_manager_built_at
 from rule_manager import index_ok as rule_manager_index_ok
+from rule_manager import indexed_ids as rule_manager_ids
+from rule_manager import missing as rule_manager_missing
 
 KST = pytz.timezone('Asia/Seoul')
 
@@ -457,14 +459,14 @@ def check_for_official_rules(db: Store, notifier: SlackNotifier,
             return
 
         max_recheck = config.PERFORMANCE["max_rule_recheck"]
-        grown, built_at = rule_manager_grown()
-        candidates, known = rule_refresh.plan(db, grown, built_at, max_recheck)
+        candidates, known = rule_refresh.plan(db, rule_manager_ids(), rule_manager_built_at(),
+                                              max_recheck, rule_manager_missing)
         known = known[:config.PERFORMANCE["max_rule_refresh"]]
 
         if not candidates and not known:
             logger.info("재확인 대상 없음")
             return
-        logger.info(f"재확인 대상: {len(candidates)}건 · 룰이 늘어난 CVE(이미 룰 있음) {len(known)}건")
+        logger.info(f"재확인 대상: {len(candidates)}건 · 스냅샷만 바꿀 CVE(이미 룰 있음) {len(known)}건")
 
         found_count = 0
 
