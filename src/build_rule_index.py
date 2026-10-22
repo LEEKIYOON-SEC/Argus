@@ -1,3 +1,4 @@
+import datetime
 import hashlib
 import io
 import json
@@ -6,7 +7,7 @@ import re
 import sys
 import tarfile
 import zipfile
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Pattern, Set
 
 import requests
 
@@ -26,6 +27,17 @@ ALL_ENGINES = frozenset(("sigma", "nuclei", "splunk", "yara", "snort2", "snort3"
 
 
 MAX_PER_ENGINE = 3
+
+_REF_CVE = re.compile(r'reference\s*:\s*cve\s*,\s*(?:CVE-)?(\d{4}-\d{4,})', re.IGNORECASE)
+_TAG_CVE = re.compile(r'\bcve\.(\d{4}-\d{4,})\b', re.IGNORECASE)
+_NAME_CVE = re.compile(r'CVE_(\d{4})_(\d{4,})', re.IGNORECASE)
+
+
+def cves_in(text: str, *forms: Pattern) -> Set[str]:
+    found = {c.upper() for c in CVE_RE.findall(text)}
+    for form in forms:
+        found.update("CVE-" + "-".join(m.groups()) for m in form.finditer(text))
+    return found
 
 
 def _add(index: Dict[str, List[Dict]], cve: str, entry: Dict) -> None:
@@ -71,7 +83,7 @@ def collect_sigma(index: Dict[str, List[Dict]]) -> Set[str]:
                 if not f:
                     continue
                 text = f.read().decode("utf-8", errors="ignore")
-                cves = {c.upper() for c in CVE_RE.findall(text)}
+                cves = cves_in(text, _TAG_CVE)
                 if not cves:
                     continue
                 path = member.name.split("/", 1)[1] if "/" in member.name else member.name
@@ -102,7 +114,7 @@ def collect_splunk(index: Dict[str, List[Dict]]) -> Set[str]:
                 if not f:
                     continue
                 text = f.read().decode("utf-8", errors="ignore")
-                cves = {c.upper() for c in CVE_RE.findall(text)}
+                cves = cves_in(text)
                 if not cves:
                     continue
                 path = member.name.split("/", 1)[1] if "/" in member.name else member.name
@@ -138,7 +150,7 @@ def collect_yara(index: Dict[str, List[Dict]]) -> Set[str]:
                     continue
                 text = zf.read(name).decode("utf-8", errors="ignore")
                 for chunk in re.split(r'(?=^rule\s+\w+)', text, flags=re.M):
-                    cves = {c.upper() for c in CVE_RE.findall(chunk)}
+                    cves = cves_in(chunk, _NAME_CVE)
                     if not cves:
                         continue
                     m = re.search(r'^rule\s+(\w+)', chunk, re.M)
@@ -243,7 +255,7 @@ def collect_network(index: Dict[str, List[Dict]]) -> Set[str]:
                     skipped += 1
                     continue
             key = _network_key(label, stripped)
-            for cve in {c.upper() for c in CVE_RE.findall(stripped)}:
+            for cve in cves_in(stripped, _REF_CVE):
                 _add(index, cve, rule_license.apply({"engine": engine, "source": label,
                                                      "path": key, "url": "", "code": stripped}))
                 n += 1
@@ -273,6 +285,18 @@ def load_previous() -> Dict[str, List[Dict]]:
         return prev
     except (OSError, ValueError):
         return {}
+
+
+def grown_since(index: Dict[str, List[Dict]], prev: Dict[str, List[Dict]]) -> List[str]:
+    if not prev:
+        return sorted(index)
+    out = []
+    for cve, entries in index.items():
+        now = {(e.get("engine"), e.get("path")) for e in entries}
+        before = {(e.get("engine"), e.get("path")) for e in (prev.get(cve) or []) if isinstance(e, dict)}
+        if now - before:
+            out.append(cve)
+    return sorted(out)
 
 
 def carry_missing(index: Dict[str, List[Dict]], prev: Dict[str, List[Dict]],
@@ -305,10 +329,11 @@ def main() -> int:
     if missing == ALL_ENGINES:
         logger.error("모든 소스가 실패했습니다 — 기존 파일을 덮어쓰지 않고 종료")
         return 1
+    prev = load_previous()
     if missing:
         logger.warning(f"갱신 못 한 엔진 {sorted(missing)} — 직전 인덱스에서 이월한다 "
                        f"(못 받은 것을 '룰 없음'으로 만들지 않는다)")
-        carried = carry_missing(index, load_previous(), missing)
+        carried = carry_missing(index, prev, missing)
         logger.info(f"  이월 {carried:,}개 매핑")
         if carried == 0:
             logger.error("이월할 직전 인덱스도 없습니다 — 덮어쓰지 않고 종료")
@@ -323,15 +348,22 @@ def main() -> int:
         for e in entries:
             by_engine[e["engine"]] = by_engine.get(e["engine"], 0) + 1
 
+    grown = grown_since(index, prev)
+    if not prev:
+        logger.warning("직전 인덱스가 없어 CVE 전부를 '룰이 늘어난 CVE'로 적는다")
+    logger.info(f"직전 인덱스보다 룰이 늘어난 CVE {len(grown):,}건")
+
     payload = {
         "_source": "SigmaHQ · Emerging Threats Open · Snort Community · "
                    "nuclei-templates · Splunk ESCU · YARA Forge",
         "_license": "항목마다 license 필드 참조(src/rule_license.py) — 재게시 시 출처 · author · "
                     "라이선스 고지를 함께 싣고, link_only 항목은 본문을 싣지 않는다",
         "schema": 1,
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "engines": by_engine,
         "refreshed": sorted(refreshed),
         "carried": sorted(missing),
+        "grown": grown,
         "rules": index,
     }
     os.makedirs(_DATA, exist_ok=True)
