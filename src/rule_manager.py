@@ -18,7 +18,6 @@ _META: Dict = {"generated_at": ""}
 _LOCAL = os.path.join(pages.DATA_DIR, "detection-rules.json")
 
 _MAX_RULE_CHARS = 6000
-_NETWORK_MAX = 3
 _SID = re.compile(r"\bsid\s*:\s*(\d+)")
 
 
@@ -133,12 +132,7 @@ def _choose(entries: List[Dict]) -> Tuple[List[Pick], Dict[str, Pick]]:
         elif engine in ("sigma", "yara", "splunk"):
             if engine not in single or single[engine][1].get("link_only"):
                 single[engine] = (entry, packed)
-    network: List[Pick] = []
-    cap = max(_NETWORK_MAX, len(queues))
-    for depth in range(max((len(q) for q in queues.values()), default=0)):
-        network.extend(q[depth] for q in queues.values() if depth < len(q))
-    return network[:cap], single
-
+    return [pick for queue in queues.values() for pick in queue], single            
 
 def rule_key(rule: Dict) -> Tuple[str, str]:
     engine = rule.get("engine") or ""
