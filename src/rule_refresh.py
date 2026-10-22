@@ -1,3 +1,21 @@
+import datetime
+import time
+from typing import Callable, Dict, List, Optional, Tuple
+
+from logger import logger
+
+RULE_KEYS = ("network", "sigma", "yara", "nuclei", "splunk")
+
+
+def _when(ts) -> Optional[datetime.datetime]:
+    try:
+        d = datetime.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=datetime.timezone.utc)
+
+
+def due(rows: Dict[str, Dict], grown: List[str], built_at: str) -> Tuple[List[Dict], List[Dict]]:
     """grown 가운데 추적 중이고 색인을 만든 뒤로 다시 보지 않은 CVE — (룰이 없던 것, 이미 룰이 있던 것)."""
     built = _when(built_at)
     if built is None:
