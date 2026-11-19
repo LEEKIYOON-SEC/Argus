@@ -36,7 +36,7 @@ jobs:
 
       - name: Resolve cache day
         id: cacheday
-        run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+        run: echo "day=$(date -u +%Y-%m-%d-%H)" >> "$GITHUB_OUTPUT"
 
       - name: Cache signal indexes
         uses: actions/cache@v4
