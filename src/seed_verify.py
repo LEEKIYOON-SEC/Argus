@@ -71,6 +71,9 @@ def main() -> int:
     first_run = 0
     for key, source in signal_snapshot.SOURCES.items():
         known = db.get_snapshot_ids(key)
+        if not known and source.catch_up is not None:
+            logger.info(f"  [{source.label}] 스냅샷 없음 — bulk-lane 첫 회차가 기록한다 (차단 아님)")
+            continue
         if not known:
             blockers.append(f"{source.label} 스냅샷 없음")
             logger.error(f"  ❌ [{source.label}] 스냅샷 없음 — 첫 회차가 전량을 신규로 본다")

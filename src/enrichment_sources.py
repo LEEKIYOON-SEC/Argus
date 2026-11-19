@@ -1,3 +1,4 @@
+import collections
 import csv
 import functools
 import io
@@ -49,17 +50,24 @@ def memo_ok(fn):
     return wrapper
 
 
-def cache_get(name: str, ttl_hours: int = _CACHE_TTL_HOURS) -> Optional[bytes]:
+def cache_get(name: str, ttl_hours: int = _CACHE_TTL_HOURS,
+              since: Optional[float] = None) -> Optional[bytes]:
     path = os.path.join(_CACHE_DIR, name)
     try:
         if os.path.exists(path):
-            age = time.time() - os.path.getmtime(path)
-            if age < ttl_hours * 3600:
+            mtime = os.path.getmtime(path)
+            fresh = mtime >= since if since is not None else time.time() - mtime < ttl_hours * 3600
+            if fresh:
                 with open(path, "rb") as f:
                     return f.read()
     except OSError as e:
         logger.debug(f"캐시 읽기 실패 ({name}): {e}")
     return None
+
+
+def this_hour_start(now: Optional[float] = None) -> float:
+    t = time.time() if now is None else now
+    return t - (t % 3600)
 
 
 def cache_put(name: str, content: bytes) -> None:
@@ -70,6 +78,13 @@ def cache_put(name: str, content: bytes) -> None:
             f.write(content)
     except OSError as e:
         logger.debug(f"캐시 쓰기 실패 ({name}): {e}")
+
+
+def cache_drop(name: str) -> None:
+    try:
+        os.remove(os.path.join(_CACHE_DIR, name))
+    except OSError:
+        pass
 
 
 _exploitdb_index: Dict[str, Tuple[str, str]] = {}
@@ -115,6 +130,8 @@ def load_exploitdb_index() -> Dict[str, Tuple[str, str]]:
             logger.info(f"  ✅ Exploit-DB 인덱스 로드 완료 ({len(_exploitdb_index)}개 CVE 매핑)")
         except Exception as e:
             logger.warning(f"  ⚠️ Exploit-DB CSV 파싱 실패: {e}")
+        if not _exploitdb_ok:
+            cache_drop("exploitdb-files.csv")
 
     return _exploitdb_index
 
@@ -187,6 +204,8 @@ def load_metasploit_index() -> Dict[str, List[Dict]]:
             logger.info(f"  ✅ Metasploit 인덱스 로드 완료 ({len(_msf_index)}개 CVE 매핑)")
         except Exception as e:
             logger.warning(f"  ⚠️ Metasploit 메타데이터 파싱 실패: {e}")
+        if not _msf_ok:
+            cache_drop("metasploit-modules.json")
 
     return _msf_index
 
@@ -253,6 +272,8 @@ def load_nuclei_index() -> Dict[str, Dict]:
             logger.info(f"  ✅ nuclei-templates 인덱스 로드 완료 ({len(_nuclei_index)}개 CVE 매핑)")
         except Exception as e:
             logger.warning(f"  ⚠️ nuclei-templates 파싱 실패: {e}")
+        if not _nuclei_ok:
+            cache_drop("nuclei-cves.json")
 
     return _nuclei_index
 
@@ -272,10 +293,51 @@ def nuclei_template_url(path: str) -> str:
 
 
 _poc_index: Dict[str, List[str]] = {}
+_poc_dates: Dict[str, str] = {}
 _poc_loaded = False
 _poc_ok = False
-_POC_BLOCK = re.compile(rf"^### ({CVE_RE.pattern})", re.M)
+_POC_BOUNDARY = re.compile(r"^### ", re.M)
+_POC_HEAD = re.compile(rf"### ({CVE_RE.pattern})(?: \((\d{{4}}-\d{{2}}-\d{{2}})\))?")
 _POC_LINK = re.compile(r"https://github\.com/[^\s\)\]]+")
+_POC_REPO = re.compile(r"^- \[[^\]]*\]\(https://github\.com/([^/\s\)]+)/([^/\s\)]+)\)", re.M)
+_poc_counts: Dict[str, int] = {}
+_poc_nicks: Dict[str, List[Tuple[str, int]]] = {}
+_nick_spell: Dict[str, "collections.Counter"] = collections.defaultdict(collections.Counter)
+
+
+_NICK = re.compile(r"(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9]{0,18}[A-Za-z])[-_ ]?([24])[-_ ]?shell(?!(?-i:[a-z0-9]))", re.I)
+
+NICKNAME_MIN_OWNERS = 3
+NICKNAME_MAX = 3
+
+
+def nickname_parts(text: str) -> List[Tuple[str, str]]:
+    return [(f"{m.group(1).lower()}{m.group(2)}shell", f"{m.group(1)}{m.group(2)}") for m in _NICK.finditer(text or "")]
+
+
+def _nick_display(spellings: "collections.Counter") -> str:
+    cased = [(n, s) for s, n in spellings.items() if any(ch.isupper() for ch in s)]
+    if cased:
+        return f"{max(cased)[1]}Shell"
+    best = max((n, s) for s, n in spellings.items())[1]
+    return f"{best[:1].upper()}{best[1:]}Shell"
+
+
+def _nicknames_of(repos: List[Tuple[str, str]]) -> List[Tuple[str, int]]:
+    owners: Dict[str, set] = collections.defaultdict(set)
+    for owner, repo in repos:
+        for key, shown in nickname_parts(repo):
+            owners[key].add(owner.lower())
+            _nick_spell[key][shown] += 1
+    found = sorted(((len(o), key) for key, o in owners.items() if len(o) >= NICKNAME_MIN_OWNERS),
+                   key=lambda x: (-x[0], x[1]))
+    return [(key, n) for n, key in found[:NICKNAME_MAX]]
+
+
+def nickname_display(key: str) -> str:
+    load_poc_index()
+    spellings = _nick_spell.get(key)
+    return _nick_display(spellings) if spellings else ""
 
 
 def load_poc_index() -> Dict[str, List[str]]:
@@ -285,7 +347,7 @@ def load_poc_index() -> Dict[str, List[str]]:
             return _poc_index
         _poc_loaded = True
 
-        raw = cache_get("poc-in-github.md")
+        raw = cache_get("poc-in-github.md", since=this_hour_start())
         if raw is None:
             logger.info("📥 PoC-in-GitHub 인덱스 다운로드 중...")
             try:
@@ -303,15 +365,30 @@ def load_poc_index() -> Dict[str, List[str]]:
             logger.info("📥 PoC-in-GitHub 인덱스 캐시 로드")
 
         try:
-            parts = _POC_BLOCK.split(raw.decode("utf-8", errors="ignore"))
-            for i in range(1, len(parts) - 1, 2):
-                urls = _POC_LINK.findall(parts[i + 1])
+            text = raw.decode("utf-8", errors="ignore")
+            starts = [b.start() for b in _POC_BOUNDARY.finditer(text)] + [len(text)]
+            for start, end in zip(starts, starts[1:]):
+                m = _POC_HEAD.match(text, start)
+                if not m:
+                    continue
+                urls = _POC_LINK.findall(text, m.end(), end)
                 if urls:
-                    _poc_index[parts[i].upper()] = urls[:3]
+                    cve_id = m.group(1).upper()
+                    _poc_index[cve_id] = urls[:3]
+                    if m.group(2):
+                        _poc_dates[cve_id] = m.group(2)
+                    repos = _POC_REPO.findall(text, m.end(), end)
+                    if repos:
+                        _poc_counts[cve_id] = len({(o.lower(), r.lower()) for o, r in repos})
+                        nicks = _nicknames_of(repos)
+                        if nicks:
+                            _poc_nicks[cve_id] = nicks
             _poc_ok = bool(_poc_index)
             logger.info(f"  ✅ PoC 인덱스 로드 완료 ({len(_poc_index)}개 CVE 매핑)")
         except Exception as e:
             logger.warning(f"  ⚠️ PoC-in-GitHub 파싱 실패: {e}")
+        if not _poc_ok:
+            cache_drop("poc-in-github.md")
 
     return _poc_index
 
@@ -324,6 +401,34 @@ def poc_ok() -> bool:
 def poc_urls(cve_id: str) -> List[str]:
     load_poc_index()
     return _poc_index.get(cve_id.upper(), [])
+
+
+def poc_dates() -> Dict[str, str]:
+    load_poc_index()
+    return _poc_dates
+
+
+def poc_count(cve_id: str) -> int:
+    load_poc_index()
+    return _poc_counts.get(str(cve_id).upper(), 0)
+
+
+def poc_nicknames(cve_id: str) -> List[Tuple[str, int]]:
+    load_poc_index()
+    return [(_nick_display(_nick_spell[key]), n) for key, n in _poc_nicks.get(str(cve_id).upper(), [])]
+
+
+def tool_nicknames(cve_id: str, nuclei: bool = True, msf: bool = True) -> List[Tuple[str, str]]:
+    out: List[Tuple[str, str]] = []
+    if nuclei:
+        tpl = nuclei_template(cve_id)
+        for _key, shown in nickname_parts((tpl or {}).get("name", "")):
+            out.append((f"{shown}Shell", "nuclei"))
+    if msf:
+        for mod in metasploit_modules(cve_id):
+            for _key, shown in nickname_parts(str(mod.get("fullname") or "").replace("/", " ")):
+                out.append((f"{shown[:1].upper()}{shown[1:]}Shell", "metasploit"))
+    return out
 
 
 @memo_ok
@@ -345,6 +450,7 @@ def load_cisa_kev(ttl_hours: int = 1) -> Optional[Dict[str, Dict]]:
         data = json.loads(raw.decode("utf-8", errors="ignore"))
     except ValueError as e:
         logger.error(f"CISA KEV 파싱 실패: {e}")
+        cache_drop("cisa-kev.json")
         return None
     out = {}
     for item in data.get("vulnerabilities", []) or []:
@@ -449,6 +555,7 @@ def load_vulncheck_kev(ttl_hours: int = 6) -> Optional[Dict[str, Dict]]:
             out[str(cve_id).upper()] = item
     if not out:
         logger.warning("VulnCheck KEV: 레코드를 하나도 읽지 못함 → 이번 회차 생략")
+        cache_drop("vulncheck-kev.bin")
         return None
     logger.info(f"📥 VulnCheck KEV {len(out)}건 (This product uses VulnCheck KEV)")
     return out
@@ -482,6 +589,7 @@ def load_epss_full(ttl_hours: int = 6) -> Optional[Dict[str, Tuple[float, float]
         text = gzip.decompress(raw).decode("utf-8", errors="replace")
     except Exception as e:
         logger.warning(f"EPSS 덤프 압축 해제 실패: {e}")
+        cache_drop("epss-full.csv.gz")
         return None
 
     out: Dict[str, Tuple[float, float]] = {}

@@ -86,20 +86,46 @@ def author_of(code: str) -> str:
     return "" if name in ("|", ">", "") else name[:120]
 
 
+_LINES = re.compile(r"#L(\d+)(?:-L(\d+))?$")
+_CUT_MARK = "\n# … (생략 — 전체는 출처 링크 참조)"
+
+
+def _overrun(rule: Dict) -> bool:
+    m = _LINES.search(rule.get("url") or "")
+    code = rule.get("code")
+    if not m or not isinstance(code, str):
+        return False
+    span = int(m.group(2) or m.group(1)) - int(m.group(1)) + 1
+    body = code[:-len(_CUT_MARK)] if code.endswith(_CUT_MARK) else code
+    return span > 0 and len(body.splitlines()) > span
+
+
+def _cut(text: str, url: str) -> str:
+    m = _LINES.search(url)
+    if not m:
+        return text
+    first = int(m.group(1))
+    last = int(m.group(2) or first)
+    lines = text.splitlines()
+    if first < 1 or last < first or first > len(lines):
+        return text
+    return "\n".join(lines[first - 1:last])
+
+
 def _fetch_text(entry: Dict) -> Optional[str]:
     if entry.get("code"):
         return entry["code"]
     url = entry.get("url") or ""
-    raw = (url.replace("https://github.com/", "https://raw.githubusercontent.com/")
-              .replace("/blob/", "/"))
+    raw = (_LINES.sub("", url).replace("https://github.com/", "https://raw.githubusercontent.com/")
+           .replace("/blob/", "/"))
     if not raw.startswith("http"):
         return None
     try:
         resp = requests.get(raw, timeout=30, headers={"User-Agent": "argus-rules"})
         resp.raise_for_status()
-        text = resp.text
+        text = _cut(resp.text, url)
         if len(text) > _MAX_RULE_CHARS:
-            text = text[:_MAX_RULE_CHARS] + "\n# … (생략 — 전체는 출처 링크 참조)"
+            text = text[:_MAX_RULE_CHARS] + _CUT_MARK
         return text
     except requests.exceptions.RequestException as e:
         logger.debug(f"룰 원문 수신 실패({raw}): {e}")
@@ -132,7 +158,8 @@ def _choose(entries: List[Dict]) -> Tuple[List[Pick], Dict[str, Pick]]:
         elif engine in ("sigma", "yara", "splunk"):
             if engine not in single or single[engine][1].get("link_only"):
                 single[engine] = (entry, packed)
-    return [pick for queue in queues.values() for pick in queue], single            
+    return [pick for queue in queues.values() for pick in queue], single
+
 
 def rule_key(rule: Dict) -> Tuple[str, str]:
     engine = rule.get("engine") or ""
@@ -197,5 +224,6 @@ def missing(cve_id: str, snapshot) -> bool:
     want = {rule_key(entry) for entry, _ in network + list(single.values())}
     snap = snapshot if isinstance(snapshot, dict) else {}
     have = {rule_key(r) for r in (snap.get("network") or []) if isinstance(r, dict)}
-    have.update(rule_key(r) for k, r in snap.items() if k != "network" and isinstance(r, dict))
-    return bool(want - have)
+    singles = [r for k, r in snap.items() if k != "network" and isinstance(r, dict)]
+    have.update(rule_key(r) for r in singles)
+    return bool(want - have) or any(_overrun(r) for r in singles)

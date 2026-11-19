@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import datetime
 import hashlib
+import re
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Set
 
@@ -15,6 +17,8 @@ class Source:
     label: str
     fast: bool
     load: Callable[[], Optional[Set[str]]]
+    catch_up: Optional[Callable[[Set[str], object], Set[str]]] = None
+    newest_first: bool = False
 
 
 _RANSOM_SUFFIX = "#ransomware"
@@ -68,6 +72,38 @@ def _anthropic_cvd_ids() -> Optional[Set[str]]:
     return None if data is None else (set(data) or None)
 
 
+def _poc_ids() -> Optional[Set[str]]:
+    idx = enrichment_sources.load_poc_index()
+    return set(idx) or None
+
+
+POC_CATCH_UP_DAYS = 90
+
+
+def _poc_catch_up(ids: Set[str], store) -> Set[str]:
+    dates = enrichment_sources.poc_dates()
+    cutoff = (datetime.datetime.now(datetime.timezone.utc)
+              - datetime.timedelta(days=POC_CATCH_UP_DAYS)).date().isoformat()
+    recent = sorted(c for c in ids if dates.get(c, "9999-12-31") >= cutoff)
+    if not recent:
+        return set()
+    rows, _covered = store.get_cves(recent)
+    tracked = {c for c, row in rows.items() if (row or {}).get("last_alert_state")}
+    return set(recent) - tracked
+
+
+_CVE_NUM = re.compile(r"CVE-(\d{4})-(\d+)", re.I)
+
+
+def _newest(token: str):
+    m = _CVE_NUM.match(cve_of(token))
+    return (int(m.group(1)), int(m.group(2)), token) if m else (0, 0, token)
+
+
+def _ordered(source: Source, ids) -> List[str]:
+    return sorted(ids, key=_newest, reverse=True) if source.newest_first else sorted(ids)
+
+
 SOURCES: Dict[str, Source] = {
     s.key: s for s in (
         Source("cisa_kev_v2", "CISA KEV", True, _kev_ids),
@@ -79,6 +115,8 @@ SOURCES: Dict[str, Source] = {
                _epss_critical_ids),
         Source("anthropic_cvd", "Anthropic CVD (ANT)", False,
                _anthropic_cvd_ids),
+        Source("poc_in_github", "PoC-in-GitHub", False, _poc_ids,
+               catch_up=_poc_catch_up, newest_first=True),
     )
 }
 
@@ -127,9 +165,18 @@ def _sweep_one(store, source: Source, cap: int) -> Optional[Diff]:
     stored_digest = store.get_snapshot_digest(source.key)
 
     if stored_digest is None:
-        store.save_snapshot(source.key, new_digest, upstream)
-        logger.info(f"[{source.label}] 스냅샷 최초 기록 {len(upstream):,}건 — 알림 없음")
-        return Diff(source=source, added=[])
+        pending = (set(source.catch_up(upstream, store)) & upstream) if source.catch_up else set()
+        known = upstream - pending
+        if not known:
+            known, pending = upstream, set()
+        store.save_snapshot(source.key, digest_of(known), known)
+        if not pending:
+            logger.info(f"[{source.label}] 스냅샷 최초 기록 {len(upstream):,}건 — 알림 없음")
+            return Diff(source=source, added=[])
+        picked = _ordered(source, pending)[:cap]
+        logger.info(f"[{source.label}] 스냅샷 최초 기록 {len(known):,}건 · 바로 판정할 것 {len(pending):,}건 "
+                    f"(이번 {len(picked)}건, 나머지는 다음 실행)")
+        return Diff(source=source, added=picked, known=known)
 
     if stored_digest == new_digest:
         logger.debug(f"[{source.label}] 변화 없음 (digest 일치)")
@@ -140,7 +187,7 @@ def _sweep_one(store, source: Source, cap: int) -> Optional[Diff]:
         logger.warning(f"[{source.label}] 저장된 집합을 읽지 못함 → 이번 회차 생략")
         return None
 
-    added = sorted(upstream - known)
+    added = _ordered(source, upstream - known)
     if not added:
         store.save_snapshot(source.key, digest_of(known | upstream), known | upstream)
         logger.info(f"[{source.label}] 신규 없음 (제외분만 변동)")

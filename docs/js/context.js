@@ -7,6 +7,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function (LC) {
   'use strict';
 
+
   const EPSS_P_HIGH = 0.95;
   const EPSS_SCORE_HIGH = 0.093;
   const CVSS_CRITICAL = 9.0;
@@ -381,9 +382,11 @@
             { kind: 'artifact', url: URL.metasploit, basis: 'CVE ID', items: mods })
       : row('Metasploit', 'miss', '모듈 없음', { kind: 'artifact', basis: 'CVE ID' }));
     const pocs = [...new Set((cve.poc_urls || []).filter(Boolean))];
+    const pocTotal = Math.max(Number(cve.poc_count) || 0, pocs.length);
     rows.push(cve.has_poc
-      ? row('PoC-in-GitHub', 'hit', pocs.length ? `공개 저장소 ${pocs.length}개` : '공개 PoC 있음',
-            { kind: 'artifact', url: URL.poc, basis: 'CVE ID', links: pocs, detail: 'PoC가 공개됐다는 뜻이며 실제 공격이 있었다는 뜻은 아닙니다' })
+      ? row('PoC-in-GitHub', 'hit', pocTotal ? `공개 저장소 ${pocTotal}개` : '공개 PoC 있음',
+            { kind: 'artifact', url: URL.poc, basis: 'CVE ID', links: pocs,
+              detail: `${pocTotal > pocs.length ? `링크는 앞 ${pocs.length}개만 싣습니다. ` : ''}PoC가 공개됐다는 뜻이며 실제 공격이 있었다는 뜻은 아닙니다` })
       : row('PoC-in-GitHub', 'miss', '없음', { kind: 'artifact', basis: 'CVE ID' }));
     if (cve.ssvc_exploitation === 'poc') {
       rows.push(row('CISA SSVC', 'info', 'Exploitation: poc', { kind: 'assessment', url: URL.cveRecord(cve.id),
@@ -660,7 +663,7 @@
 
   function qualityChecks(cves, deps) {
     const d = deps || {};
-    const checks = [];
+    const checks = []
     const add = (id, label, bad, note, level) => checks.push({
       id, label, status: bad.length ? (level || 'warn') : 'ok', count: bad.length, examples: bad.slice(0, 5),
       note: note || '' });

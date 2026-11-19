@@ -93,6 +93,7 @@ WEAPONIZABLE_CWE: FrozenSet[str] = frozenset({
     "CWE-98",
     "CWE-22",
     "CWE-287",
+    "CWE-288",
     "CWE-306",
     "CWE-434",
     "CWE-502",

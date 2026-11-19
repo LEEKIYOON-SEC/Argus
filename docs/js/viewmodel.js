@@ -47,7 +47,6 @@
     };
   }
 
-
   const VERSION_JUNK = ['', 'unknown', 'n/a', '-', 'n/a (단일 버전)', '정보 없음'];
   const isJunk = v => VERSION_JUNK.includes(String(v || '').trim().toLowerCase());
   const shortHash = v => (/^[0-9a-f]{12,40}$/i.test(v) ? `커밋 ${v.slice(0, 7)}` : v);
@@ -141,6 +140,7 @@
     return {
       id: cve.id, severity: cve.severity || 'None', tier: cve.tier || '', title: cve.title || 'N/A',
       ai: cve.ai_discovered ? { program: cve.ai_program || '' } : null,
+      nicknames: (cve.nicknames || []).filter(Boolean).slice(0, 3), poc: Number(cve.poc_count) || 0,
       cvss: sc.cvss, epss: sc.epss, threat,
       type: CWE ? CWE.typeOf(cve.cwe) : null,
       snippet: snippetOf(cve, names),
@@ -156,7 +156,6 @@
       date: cve.date || '',
     };
   }
-
 
   function kpis(agg, stats, extra) {
     const s = (stats && stats.cve) || {};
@@ -252,7 +251,6 @@
           .map(k => (CTX ? CTX.SIGNAL[k].short : k)) });
     });
   }
-
 
   function sources(EN, agg, extra) {
     if (!EN) return [];

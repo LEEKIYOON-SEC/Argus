@@ -47,6 +47,7 @@ function renderDashboard() {
     renderCorrelations(src);
     renderOverview(src);
     renderRecent(src);
+    renderHot();
     renderMatrix(src);
     renderFoldSums(src);
   } finally {
@@ -351,6 +352,36 @@ function renderRecent(src) {
 }
 
 
+let hotIds = [];
+const HOT_WINDOW = '90d';
+
+function hotCves(cves, n) {
+  return (cves || []).filter(c => Number(c.poc_count) > 0 && withinDays(c.published, HOT_WINDOW))
+    .sort((a, b) => (Number(b.poc_count) - Number(a.poc_count))
+      || String(b.published || '').localeCompare(String(a.published || ''))
+      || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .slice(0, n || 8);
+}
+
+function renderHot() {
+  const box = byId('dash-hot');
+  if (!box) return;
+  if (!dataReady || !allCves.length) { box.innerHTML = '<li class="dash-wait">불러오는 중…</li>'; hotIds = []; return; }
+  const items = hotCves(allCves, 8);
+  hotIds = items.map(c => c.id);
+  box.innerHTML = items.map(c => {
+    const sev = c.severity || 'None';
+    const cvss = Number(c.cvss) || 0;
+    return `<li><button type="button" class="recent-item" data-cve="${escapeHtml(c.id)}" title="${escapeHtml(c.title || '')}">
+    <span class="r-top"><span class="cve-id">${escapeHtml(c.id)}</span>${nicknameTagHtml(c.nicknames, c.poc_count)}<span class="badge badge-sev sev-${escapeHtml(sev)}">${escapeHtml(sev)}${cvss ? ` ${cvss.toFixed(1)}` : ''}</span><span class="r-ago">PoC 저장소 ${fmt(c.poc_count)}개</span></span>
+    <span class="r-title">${escapeHtml(c.title || '')}</span>
+  </button></li>`;
+  }).join('') || '<li class="dash-wait">공개 90일 이내에 PoC가 올라온 CVE가 없습니다.</li>';
+  box.querySelectorAll('[data-cve]').forEach(b => b.addEventListener('click', () =>
+    openCveFrom(b.dataset.cve, { label: '화제 CVE', ids: hotIds.slice() })));
+}
+
+
 function matrixBins(max) {
   const edges = [];
   for (let k = 1; k <= 5; k++) edges.push(Math.max(1, Math.ceil(max * (k / 5) ** 2)));
@@ -407,6 +438,8 @@ function renderFoldSums(src) {
   const top = tops.length ? tops[0] : (dataReady && allCves.length ? computeTopProducts(1)[0] : null);
   put('fold-products-sum', top ? `${top.product} ${fmt(top.count)} …` : '');
   put('fold-recent-sum', recentIds.length ? `${recentIds.length}건` : '');
+  const hot = hotIds.length ? allCves.find(c => c.id === hotIds[0]) : null;
+  put('fold-hot-sum', hot ? `${(hot.nicknames || [])[0] || hot.id} ${fmt(hot.poc_count)} …` : '');
 }
 
 function toggleFold(btn) {

@@ -1,16 +1,3 @@
-"""탐지 룰 라이선스 — 룰을 싣는 곳(색인 · 스냅샷 · export)이 모두 이 판정 하나를 쓴다.
-
-화면(docs/js/context.js 의 RULE_LICENSE · ruleTerms)은 출처가 정해진 룰을 같은 표기로 적는다.
-둘 중 하나를 바꾸면 다른 쪽도 바꾸고 tests/test_rule_license.py · tests/context.test.js 로 맞춰 본다.
-
-원문 확인 (2026-09-29)
-  - ET Open: 배포 LICENSE 기준 SID 2000000–2799999 는 BSD (Copyright (c) 2003-2026, Emerging Threats),
-    SID 1–3464 · 100000000–100000908 은 GPLv2, 2800000–2900000 은 ET Pro 라이선스다. 색인은 BSD 범위만 싣는다.
-  - Snort Community: community.rules 머리말 — GPLv2 (Copyright 2001-2026 Sourcefire, Inc. 및 각 작성자).
-    함께 배포되는 VRT 라이선스 §2.3 은 Community Rules 가 그 계약의 대상이 아니라고 적는다.
-  - YARA: YARA Forge 는 룰마다 원 저장소의 LICENSE 링크(license_url)만 준다. 저장소별 라이선스는 아래 표로 정하고,
-    표에 없는 저장소나 LICENSE 가 없는 저장소(license_url 'N/A')의 룰은 본문 없이 링크만 싣는다.
-"""
 import re
 from typing import Dict, Optional
 
@@ -40,7 +27,6 @@ _GITHUB = re.compile(r"github\.com/+([^/\s]+)/+([^/\s#?]+)", re.I)
 
 
 def source_of(rule: Dict) -> Optional[str]:
-    """룰이 온 곳 — 네트워크 룰은 엔진이 같아도 ET Open(BSD)과 Snort Community(GPLv2)로 나뉜다."""
     engine = rule.get("engine") or ""
     if engine in NETWORK_ENGINES:
         return "snort-community" if "community" in (rule.get("source") or "").lower() else "et-open"
@@ -53,13 +39,10 @@ def repo_of(url: str) -> str:
 
 
 def et_open_sid_ok(sid: Optional[int]) -> bool:
-    """ET Open 배포본에서 BSD 로 배포되는 SID 범위인가."""
     return sid is not None and 2000000 <= sid <= 2799999
 
 
 def terms(rule: Dict) -> Dict:
-    """룰 하나에 적을 라이선스 — {license, license_url, holder, link_only}. link_only 면 본문을 싣지 않는다.
-    holder 는 YARA 원 저장소의 저작권 문구다(ET Open · Snort Community 의 저작권 줄은 화면이 출처로 안다)."""
     engine = rule.get("engine") or ""
     if engine == "yara":
         lic_url = str(rule.get("license_url") or "")
@@ -76,10 +59,6 @@ def terms(rule: Dict) -> Dict:
 
 
 def apply(rule: Dict) -> Dict:
-    """라이선스 표기를 바로잡은 사본. 본문을 실을 수 없는 룰은 code 를 뺀다. 여러 번 적용해도 결과가 같다.
-
-    license_url · holder(저작권 문구)는 룰마다 다른 YARA 에만 남긴다 — 출처가 정해진 룰은 화면이 출처로 안다.
-    """
     out = {k: v for k, v in rule.items() if k != "note"}
     t = terms(rule)
     out["license"] = t["license"]

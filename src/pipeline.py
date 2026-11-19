@@ -24,6 +24,7 @@ STATE_FIELDS = frozenset({
     "ai_discovered", "ai_program", "ai_detail", "ai_url", "analysis",
     "cvss", "cvss_version", "cvss_scores", "epss", "epss_percentile", "assigner",
     "tier", "fired_triggers",
+    "ko_tried",
 })
 
 
@@ -32,6 +33,7 @@ class Outcome:
     cve_id: str
     status: str
     tier: str = risk.T3
+    fresh: bool = False
 
 
     @property
@@ -61,6 +63,20 @@ def build_state(cve_id: str, record: Dict, collector,
     if epss_index is not None and cve_id in epss_index:
         raw["epss"], raw["epss_percentile"] = epss_index[cve_id]
     return raw
+
+
+def retire_rejected(cve_id: str, record: Dict, db, rows: Optional["RowCache"] = None) -> bool:
+    if ((record or {}).get("cveMetadata") or {}).get("state") != "REJECTED":
+        return False
+    row = rows.get(cve_id) if rows is not None else db.get_cve(cve_id)
+    if not (row or {}).get("last_alert_state"):
+        return False
+    if not db.blank_states([cve_id]):
+        return False
+    if rows is not None:
+        rows.forget(cve_id)
+    logger.info(f"{cve_id}: 철회(REJECTED)된 CVE — 추적 목록에서 내린다")
+    return True
 
 
 class RowCache:
@@ -188,7 +204,7 @@ def process(state: Dict, db, notifier, *, reason_prefix: str = "",
         if rows is not None:
             rows.forget(cve_id)
         return Outcome(cve_id, "alerted" if (announce and sent) else "tracked",
-                       decision.tier)
+                       decision.tier, fresh=last is None)
 
     except Exception as e:
         logger.error(f"{cve_id} 처리 실패: {e}", exc_info=True)

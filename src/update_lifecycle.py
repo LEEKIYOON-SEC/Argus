@@ -266,7 +266,6 @@ def _result(payload, url: str):
 
 
 def fetch_full(session) -> List[Dict]:
-    """전체 제품과 릴리스를 한 번에 받는다(/products/full). 잘린 응답은 받지 않는다."""
     payload = _get_json(session, FULL_URL)
     result = _result(payload, FULL_URL)
     if not isinstance(result, list) or not result:
@@ -281,7 +280,6 @@ def fetch_full(session) -> List[Dict]:
 
 
 def upstream_names(items: List[Dict]) -> Dict[str, str]:
-    """제품 이름과 별칭 → upstream 제품 이름. 이름이 별칭보다 앞선다."""
     names: Dict[str, str] = {item["name"]: item["name"] for item in items}
     for item in items:
         for alias in item.get("aliases") or []:
@@ -356,7 +354,6 @@ def _problem_text(problems: List[str]) -> str:
 
 def build(config: List[Dict], previous: Optional[Dict], now: dt.datetime,
           items: List[Dict]) -> Tuple[Dict, Dict]:
-    """추적 제품(lifecycle_products.json)만 — CVE 영향 제품과 잇는 data/lifecycle.json."""
     fetched_at, today = _stamp(now)
     names = upstream_names(items)
     by_name = {item["name"]: item for item in items}
@@ -460,8 +457,6 @@ def catalog_meta(meta: Dict, raw: Dict) -> Dict:
 
 def build_catalog(config: List[Dict], previous: Optional[Dict], now: dt.datetime,
                   items: List[Dict]) -> Tuple[Dict, Dict]:
-    """endoflife.date 제품 전부 — 제품 수명주기 화면이 여는 data/lifecycle_catalog.json.
-    추적 제품의 phase_status 는 여기에도 그대로 적용해 두 파일의 상태가 같게 한다."""
     fetched_at, today = _stamp(now)
     cfg_by_slug = {c["slug"]: c for c in config}
     prev_products = (previous or {}).get("products") or {}
@@ -782,7 +777,6 @@ def main(argv=None) -> int:
 
 
 def catalog_changes(previous: Optional[Dict], dataset: Dict) -> List[str]:
-    """전체 목록은 제품이 많아 제품 단위로만 요약한다(추가 · 삭제 · 값이 바뀐 제품 수)."""
     old = (previous or {}).get("products") or {}
     new = dataset.get("products") or {}
     old_rel, new_rel = _group((previous or {}).get("releases")), _group(dataset.get("releases"))

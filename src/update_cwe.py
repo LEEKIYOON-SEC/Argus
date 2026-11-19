@@ -36,7 +36,6 @@ def _local(tag: str) -> str:
 
 
 def _xml_bytes(raw: bytes) -> bytes:
-    """zip 이면 안의 cwec_*.xml 을, 아니면 그대로."""
     if raw[:2] == b"PK":
         with zipfile.ZipFile(io.BytesIO(raw)) as z:
             names = [n for n in z.namelist() if n.lower().endswith(".xml")]
@@ -47,7 +46,6 @@ def _xml_bytes(raw: bytes) -> bytes:
 
 
 def parse_catalog(raw: bytes) -> Dict:
-    """CWE XML(또는 zip) → {version, date, weaknesses: {id: (코드, 이름)}, categories: {id: 이름}}"""
     data = _xml_bytes(raw)
     version = date = ""
     weaknesses: Dict[str, tuple] = {}
@@ -85,7 +83,6 @@ def validate(catalog: Dict) -> None:
 
 
 def render_js(catalog: Dict, year: int) -> str:
-    """화면이 읽는 JS — 번호순으로 늘 같은 모양(바뀐 판만 diff 에 남게)."""
     by_num = lambda d: dict(sorted(d.items(), key=lambda kv: int(kv[0])))
     payload = {
         "version": catalog["version"],
