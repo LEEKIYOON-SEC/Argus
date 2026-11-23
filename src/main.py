@@ -114,7 +114,7 @@ def translate_tracked(db: Store, deadline_ts: float) -> int:
                 if not (_looks_english(title_ko) or _looks_english(desc_ko)):
                     continue
                 if state.get('ko_tried') and state.get('ko_tried') == (state.get('title') or title_ko):
-                    continue
+                    continue  
                 items.append({"id": row['id'],
                               "title": state.get('title') or title_ko,
                               "description": (state.get('description')
@@ -134,7 +134,7 @@ def translate_tracked(db: Store, deadline_ts: float) -> int:
                 for it in items:
                     tr = translations.get(it['id'])
                     if not tr:
-                        continue
+                        continue  
                     if _looks_english(tr[0]):
                         patch = {"ko_tried": it['title']}
                         if tr[1] and not _looks_english(tr[1]):
@@ -474,9 +474,10 @@ def check_for_official_rules(db: Store, notifier: SlackNotifier,
         if not candidates and not known:
             logger.info("재확인 대상 없음")
             return
-        logger.info(f"재확인 대상: {len(candidates)}건 · 스냅샷만 바꿀 CVE(이미 룰 있음) {len(known)}건")
+        logger.info(f"재확인 대상: {len(candidates)}건 · 스냅샷만 바꿀 CVE(이미 탐지 룰 있음) {len(known)}건")
 
         found_count = 0
+        template_only = 0
 
         for record in candidates:
             if deadline_ts is not None and time.time() > deadline_ts:
@@ -497,12 +498,9 @@ def check_for_official_rules(db: Store, notifier: SlackNotifier,
                     })
                     continue
 
-                has_official = bool(
-                    rules.get('network')
-                    or any(rules.get(k) for k in ('sigma', 'yara', 'nuclei', 'splunk'))
-                )
+                kind = rule_refresh.found_kind(rules)
 
-                if has_official:
+                if kind == "detection":
                     found_count += 1
                     logger.info(f"✅ {cve_id}: 공식 룰 발견!")
 
@@ -515,6 +513,16 @@ def check_for_official_rules(db: Store, notifier: SlackNotifier,
                         dashboard_url=_cve_url(cve_id),
                     )
 
+                    db.upsert_cve({
+                        "id": cve_id,
+                        "has_official_rules": True,
+                        "rules_snapshot": rules,
+                        "last_rule_check_at": now_iso,
+                        "updated_at": now_iso
+                    })
+                elif kind == "check":
+                    template_only += 1
+                    logger.info(f"{cve_id}: nuclei 점검 템플릿만 — 탐지 룰이 아니라 알림 없이 스냅샷만 남긴다")
                     db.upsert_cve({
                         "id": cve_id,
                         "has_official_rules": True,
@@ -545,7 +553,8 @@ def check_for_official_rules(db: Store, notifier: SlackNotifier,
             db, rule_manager.search_public_only, known,
             now=lambda: datetime.datetime.now(KST).isoformat(), soon=_recheck_soon,
             deadline_ts=deadline_ts)
-        logger.info(f"=== 공식 룰 재발견 체크 완료 (발견: {found_count}건 · 스냅샷 갱신: {refreshed}건) ===")
+        logger.info(f"=== 공식 룰 재발견 체크 완료 (탐지 룰 발견: {found_count}건 · nuclei 템플릿만: {template_only}건 · "
+                    f"스냅샷 갱신: {refreshed}건) ===")
 
     except Exception as e:
         logger.error(f"공식 룰 체크 프로세스 실패: {e}")

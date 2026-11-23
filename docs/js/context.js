@@ -7,7 +7,6 @@
 })(typeof window !== 'undefined' ? window : globalThis, function (LC) {
   'use strict';
 
-
   const EPSS_P_HIGH = 0.95;
   const EPSS_SCORE_HIGH = 0.093;
   const CVSS_CRITICAL = 9.0;
@@ -38,6 +37,14 @@
   const ENGINE_ORDER = ['sigma', 'suricata7', 'suricata5', 'snort3', 'snort2', 'splunk', 'yara', 'nuclei'];
   const NETWORK = new Set(['snort2', 'snort3', 'suricata5', 'suricata7']);
   const engineInfo = e => ENGINES[e] || { label: e, kind: 'detect', source: e };
+  const isCheck = e => engineInfo(e).kind === 'check';
+  const RULE_FAMILIES = [
+    { key: 'snort', label: 'Snort', engines: ['snort2', 'snort3'] },
+    { key: 'suricata', label: 'Suricata', engines: ['suricata5', 'suricata7'] },
+    { key: 'sigma', label: 'Sigma', engines: ['sigma'] },
+    { key: 'yara', label: 'YARA', engines: ['yara'] },
+    { key: 'splunk', label: 'Splunk', engines: ['splunk'] },
+  ];
 
 
   const SIGNALS = [
@@ -61,8 +68,8 @@
       question: '수정 버전이 있는가',
       def: 'OSV에 이 CVE의 수정 버전이 하나 이상 있는 경우. OSV 기록은 있는데 수정 버전이 없으면 없음, OSV 기록이 없으면 미확인입니다' },
     { code: 'PUBLIC_DETECTION', group: 'detection', short: '탐지 룰', key: 'detection',
-      question: '공개된 탐지 룰이나 점검 템플릿이 있는가',
-      def: 'Sigma · Snort · Suricata · Splunk · YARA 룰 또는 nuclei 점검 템플릿. Argus가 색인하는 공개 저장소 기준입니다' },
+      question: '공개된 탐지 룰이 있는가',
+      def: 'Sigma · Snort · Suricata · Splunk · YARA 룰 중 하나 이상. Argus가 색인하는 공개 저장소 기준입니다. nuclei 점검 템플릿은 대상에 요청을 보내 취약한지 확인하는 템플릿이라 넣지 않습니다' },
     { code: 'HIGH_EPSS', group: 'scores', short: 'EPSS 상위 5%', key: 'high-epss',
       question: '악용 확률 예측이 높은가',
       def: 'EPSS 백분위 95 이상(백분위가 없으면 확률 9.3% 이상, 알림 판정과 같은 기준). 예측값이며 악용이 확인됐다는 뜻은 아닙니다' },
@@ -71,8 +78,7 @@
   ];
   const SIGNAL = Object.fromEntries(SIGNALS.map(s => [s.code, s]));
   const SIGNAL_BY_KEY = Object.fromEntries(SIGNALS.map(s => [s.key, s.code]));
-  Object.assign(SIGNAL_BY_KEY, { patched: 'PATCH_AVAILABLE', rules: 'PUBLIC_DETECTION', exploited: 'EXPLOITATION_CONFIRMED',
-                                 automatable: 'AUTOMATABLE' });
+  Object.assign(SIGNAL_BY_KEY, { exploited: 'EXPLOITATION_CONFIRMED', automatable: 'AUTOMATABLE' });
 
   const CORRELATIONS = [
     { code: 'KEV_EOL', parts: ['CISA_KEV', 'EOL_AFFECTED'], short: 'KEV × EOL',
@@ -110,6 +116,7 @@
     unresolved: '제품은 찾았지만 영향 버전이 어느 릴리스인지 정하지 못함',
     status_unknown: '제조사 일정에 보안·확장 지원 단계가 없어 상태를 정하지 못함',
     lifecycle_unloaded: '수명주기 데이터를 불러오지 못함',
+    rules_unlisted: '공개 룰이 있다고만 기록되고 어떤 룰인지 남아 있지 않음 (nuclei 점검 템플릿일 수 있음)',
   };
 
 
@@ -146,6 +153,24 @@
     const engines = [...(cve.rule_engines || [])];
     if (cve.has_nuclei_template && !engines.includes('nuclei')) engines.push('nuclei');
     return engines;
+  }
+
+  function ruleEngines(cve) {
+    return detectionEngines(cve).filter(e => !isCheck(e));
+  }
+
+  function hasCheckTemplate(cve) {
+    return detectionEngines(cve).some(isCheck);
+  }
+
+  function ruleFamilies(cve) {
+    const found = new Set(ruleEngines(cve));
+    return RULE_FAMILIES.filter(f => f.engines.some(e => found.has(e))).map(f => f.key);
+  }
+
+  function detectionState(cve) {
+    if (ruleEngines(cve).length) return 'yes';
+    return cve.has_official_rules && !detectionEngines(cve).length ? 'unknown' : 'no';
   }
 
   function lifecycleFacts(lc, products, today, affectedCount) {
@@ -187,7 +212,7 @@
       RANSOMWARE: cve.is_kev_ransomware ? 'yes' : 'unknown',
       EOL_AFFECTED: lcf.state,
       PATCH_AVAILABLE: patchState(d.packages),
-      PUBLIC_DETECTION: t(detectionEngines(cve).length > 0 || cve.has_official_rules),
+      PUBLIC_DETECTION: detectionState(cve),
       HIGH_EPSS: epssHigh(cve),
       CRITICAL_CVSS: f.cvss === null ? 'unknown' : t(f.cvss >= CVSS_CRITICAL),
     };
@@ -195,7 +220,7 @@
   }
 
   const SOURCE_FLAGS = ['cisa_kev', 'vulncheck_kev', 'ssvc_active', 'ssvc_assessed', 'metasploit', 'exploit_db',
-                        'weaponized', 'poc', 'nuclei', 'rules', 'ai_discovered', 'epss_scored', 'cvss_scored'];
+                        'weaponized', 'poc', 'nuclei', 'ai_discovered', 'epss_scored', 'cvss_scored'];
 
   function sourceFlags(cve) {
     const msf = !!cve.has_metasploit_module, edb = !!cve.has_public_exploit;
@@ -203,8 +228,7 @@
     return {
       cisa_kev: !!cve.is_kev, vulncheck_kev: !!cve.is_vulncheck_kev, ssvc_active: cve.ssvc_exploitation === 'active',
       ssvc_assessed: !!(cve.ssvc_exploitation || cve.ssvc_automatable), metasploit: msf, exploit_db: edb,
-      weaponized: msf || edb, poc: !!cve.has_poc, nuclei: !!cve.has_nuclei_template,
-      rules: (cve.rule_engines || []).length > 0 || !!cve.has_official_rules, ai_discovered: !!cve.ai_discovered,
+      weaponized: msf || edb, poc: !!cve.has_poc, nuclei: hasCheckTemplate(cve), ai_discovered: !!cve.ai_discovered,
       epss_scored: f.epss !== null, cvss_scored: f.cvss !== null,
     };
   }
@@ -255,6 +279,7 @@
     if (states.RANSOMWARE === 'unknown') r.RANSOMWARE = [cve.is_kev ? 'kev_unknown' : 'not_in_kev'];
     if (states.PATCH_AVAILABLE === 'unknown') r.PATCH_AVAILABLE = ['no_osv_record'];
     if (states.EOL_AFFECTED === 'unknown') r.EOL_AFFECTED = lcf.reasons.slice();
+    if (states.PUBLIC_DETECTION === 'unknown') r.PUBLIC_DETECTION = ['rules_unlisted'];
     return r;
   }
 
@@ -453,9 +478,11 @@
       }
     }
     if (!rows.length) {
-      rows.push(row('공개 룰 색인', cve.has_official_rules ? 'hit' : 'miss',
-                    cve.has_official_rules ? '공식 룰 있음' : '색인된 공개 룰 없음',
-                    { kind: 'detect', basis: 'CVE ID', detail: 'Sigma · ET/Snort · Suricata · Splunk · YARA · nuclei에서 찾음' }));
+      rows.push(cve.has_official_rules
+        ? row('공개 룰 색인', 'unknown', '어떤 룰인지 기록 없음', { kind: 'detect', basis: 'CVE ID',
+            detail: '공개 룰이 있다고만 기록돼 있고 엔진과 룰 내용이 남아 있지 않습니다. nuclei 점검 템플릿일 수도 있어 탐지 룰로 세지 않습니다' })
+        : row('공개 룰 색인', 'miss', '색인된 공개 룰 없음',
+              { kind: 'detect', basis: 'CVE ID', detail: 'Sigma · ET/Snort · Suricata · Splunk · YARA · nuclei에서 찾음' }));
     }
     return rows;
   }
@@ -663,7 +690,7 @@
 
   function qualityChecks(cves, deps) {
     const d = deps || {};
-    const checks = []
+    const checks = [];
     const add = (id, label, bad, note, level) => checks.push({
       id, label, status: bad.length ? (level || 'warn') : 'ok', count: bad.length, examples: bad.slice(0, 5),
       note: note || '' });
@@ -791,10 +818,11 @@
   }
 
   return {
-    EPSS_P_HIGH, EPSS_SCORE_HIGH, CVSS_CRITICAL, URL, ENGINES, ENGINE_ORDER, engineInfo, RULE_LICENSE, ruleSource, ruleTerms,
+    EPSS_P_HIGH, EPSS_SCORE_HIGH, CVSS_CRITICAL, URL, ENGINES, ENGINE_ORDER, RULE_FAMILIES, engineInfo, RULE_LICENSE, ruleSource, ruleTerms,
     ET_FILES, ruleSid, ruleLink,
     SIGNALS, SIGNAL, SIGNAL_BY_KEY, CORRELATIONS, CORRELATION, REASON, SID, ENGINE_SID,
-    scoreFacts, epssHigh, patchState, hasFix, fixedVersions, detectionEngines, lifecycleFacts,
+    scoreFacts, epssHigh, patchState, hasFix, fixedVersions, detectionEngines, ruleEngines, ruleFamilies, hasCheckTemplate,
+    lifecycleFacts,
     signals, correlationsOf, reasonsOf, derive,
     SOURCE_FLAGS, sourceFlags, CONFLICTS, CONFLICT, conflictsOf, conflictQuery, sevBand,
     stateQuery, correlationQuery, parseRelease,

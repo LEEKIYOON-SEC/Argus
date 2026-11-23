@@ -5,7 +5,21 @@ from typing import Callable, Dict, List, Optional, Tuple
 from logger import logger
 
 RULE_KEYS = ("network", "sigma", "yara", "nuclei", "splunk")
+DETECTION_KEYS = ("network", "sigma", "yara", "splunk")
+CHECK_KEYS = ("nuclei",)
 SETTLE = datetime.timedelta(hours=1)
+
+
+def has_detection(rules) -> bool:
+    return isinstance(rules, dict) and any(rules.get(k) for k in DETECTION_KEYS)
+
+
+def found_kind(rules) -> Optional[str]:
+    if has_detection(rules):
+        return "detection"
+    if isinstance(rules, dict) and any(rules.get(k) for k in CHECK_KEYS):
+        return "check"
+    return None
 
 
 def _when(ts) -> Optional[datetime.datetime]:
@@ -33,7 +47,7 @@ def due(rows: Dict[str, Dict], built_at: str,
             continue
         if not missing(row["id"], row.get("rules_snapshot")):
             continue
-        (known if row.get("has_official_rules") else fresh).append(row)
+        (known if has_detection(row.get("rules_snapshot")) else fresh).append(row)
     return sorted(fresh, key=_order), sorted(known, key=_order)
 
 

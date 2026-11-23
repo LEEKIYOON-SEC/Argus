@@ -4,6 +4,7 @@ import requests
 from collections import Counter
 from typing import Dict, List, Optional, Tuple
 import pages
+import rule_refresh
 from fields import meaningful
 from logger import logger
 
@@ -52,7 +53,8 @@ def build_weekly_body(week_cves: List[Dict], week_label: str,
     kev = [c for c in week_cves if c.get("is_kev")]
     weaponized = [c for c in week_cves if c.get("has_metasploit_module") or c.get("has_public_exploit")]
     poc = [c for c in week_cves if c.get("has_poc")]
-    ruled = [c for c in week_cves if (c.get("rule_engines") or []) or c.get("has_official_rules")]
+    ruled = [c for c in week_cves
+             if any(e not in rule_refresh.CHECK_KEYS for e in (c.get("rule_engines") or []))]
 
     prod = Counter()
     for c in week_cves:

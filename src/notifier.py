@@ -44,7 +44,7 @@ def _rule_block(label: str, rule: Dict) -> str:
         url = http_url(rule.get('url'))
         return f"{head}\n<{url}|원문 보기>" if url else head
     preview = code[:800] + "\n..." if len(code) > 800 else code
-    preview = esc(preview).replace(_FENCE, "` ` `")
+    preview = esc(preview).replace(_FENCE, "` ` `")  
     return f"{head}\n{_FENCE}{preview}{_FENCE}"
 
 
@@ -337,8 +337,7 @@ class SlackNotifier:
 
             rule_count = 0
 
-            for key, label in (("sigma", "Sigma"), ("yara", "YARA"),
-                               ("splunk", "Splunk ESCU"), ("nuclei", "nuclei")):
+            for key, label in (("sigma", "Sigma"), ("yara", "YARA"), ("splunk", "Splunk ESCU")):
                 rule = rules_info.get(key)
                 if not rule:
                     continue
@@ -354,6 +353,10 @@ class SlackNotifier:
                     "type": "mrkdwn",
                     "text": _rule_block(str(net_rule.get('engine') or '').upper(),
                                         net_rule)}})
+
+            if rules_info.get('nuclei'):
+                blocks.append({"type": "section", "text": {
+                    "type": "mrkdwn", "text": _rule_block("nuclei 점검 템플릿 (탐지 룰 아님)", rules_info['nuclei'])}})
 
             blocks.append({"type": "divider"})
             blocks.append({
