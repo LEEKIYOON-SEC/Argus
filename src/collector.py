@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import ai_provenance
 import enrichment_sources
-from fields import CWE_RE, meaningful
+from fields import CWE_RE, meaningful, record_time
 from logger import logger
 
 
@@ -153,19 +153,19 @@ class Collector:
 
     def parse_affected(self, affected_list: List[Dict]) -> List[Dict]:
         results = []
-        
+
         for item in affected_list:
             vendor = item.get('vendor') or 'Unknown'
             product = item.get('product') or 'Unknown'
             versions = []
             patch_version = None
-            
+
             for v in item.get('versions', []):
                 version = v.get('version', '')
                 less_than = v.get('lessThan', '')
                 less_than_eq = v.get('lessThanOrEqual', '')
                 ver_str = ""
-                
+
                 if v.get('status') == "affected":
                     if version and version not in ["0", "n/a"]:
                         ver_str += f"{version} 부터 "
@@ -176,23 +176,23 @@ class Collector:
                         ver_str += f"{less_than_eq} 이하"
                     elif not less_than and not less_than_eq and version:
                         ver_str = f"{version} (단일 버전)"
-                    
+
                     if not ver_str:
                         ver_str = "모든 버전"
-                    
+
                     versions.append(ver_str.strip())
-                
+
                 elif v.get('status') in ['unaffected', 'fixed'] and version:
                     if not patch_version:
                         patch_version = version
-            
+
             results.append({
                 "vendor": vendor,
                 "product": product,
                 "versions": ", ".join(versions) if versions else "정보 없음",
                 "patch_version": patch_version
             })
-        
+
         return results
 
 
@@ -222,6 +222,7 @@ class Collector:
             data['state'] = meta.get('state', 'UNKNOWN')
             data['assigner'] = str(meta.get('assignerShortName') or '').strip()
             data['published'] = str(meta.get('datePublished') or '')[:10]
+            data['record_updated'] = record_time(meta.get('dateUpdated'))
             data['affected'] = self.parse_affected(cna.get('affected', []))
 
             descriptions = cna.get('descriptions', []) or []
@@ -245,18 +246,18 @@ class Collector:
                 elif data['description'] != 'N/A':
                     title = _clip(data['description'].split('. ')[0], 110)
             data['title'] = title or 'N/A'
-            
+
             data['cvss_scores'] = collect_cvss([cna])
             data['cvss'], data['cvss_vector'], data['cvss_version'] = \
                 pick_cvss(data['cvss_scores'])
-            
+
             for pt in cna.get('problemTypes', []):
                 for desc in pt.get('descriptions', []):
                     for field in (desc.get('cweId', ''), desc.get('description', '')):
                         for m in CWE_RE.findall(str(field)):
                             if m not in data['cwe']:
                                 data['cwe'].append(m)
-            
+
             for ref in cna.get('references', []):
                 if 'url' in ref:
                     data['references'].append(ref['url'])

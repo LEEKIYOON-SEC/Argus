@@ -69,7 +69,7 @@ def _triggers_of(state: dict, verdict) -> list:
     return sorted(verdict.triggers, key=lambda k: _TRIGGER_ORDER.get(k, 99))
 
 
-_EXPORT_SCHEMA = 4
+_EXPORT_SCHEMA = 5
 _MAX_REFERENCES = 8
 _ANALYSIS_KEYS = ("root_cause", "scenario", "impact")
 
@@ -181,6 +181,28 @@ def _s(state: dict, key: str, default: str = "") -> str:
     return v if isinstance(v, str) else default
 
 
+_KST = dt.timezone(dt.timedelta(hours=9))
+
+
+def _when(value) -> Optional[dt.datetime]:
+    s = str(value or "").strip()
+    if not s:
+        return None
+    try:
+        d = dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
+
+
+def event_time(alerted, record_updated, published: str = "") -> str:
+    times = [d for d in (_when(alerted), _when(record_updated)) if d]
+    if not times and published:
+        times = [_when(f"{published}T00:00:00+00:00")]
+    best = max((d for d in times if d), default=None)
+    return best.astimezone(_KST).isoformat() if best else ""
+
+
 def _l(state: dict, key: str) -> list:
     v = state.get(key)
     return v if isinstance(v, list) else []
@@ -254,8 +276,10 @@ def export_cves(db, days: int = 90, since: str = None, facts: dict = None) -> li
             "is_kev": bool(row.get("is_kev")),
             "cwe": cwe_clean,
             "affected": [],
-            "date": row.get("last_alert_at") or row.get("updated_at") or "",
+            "date": event_time(row.get("last_alert_at"), _s(state, "record_updated"), _s(state, "published")[:10]),
             "updated": row.get("updated_at") or "",
+            "alerted": row.get("last_alert_at") or "",
+            "record_updated": _s(state, "record_updated"),
         }
 
         seen_aff = {}

@@ -226,6 +226,14 @@ class TursoStore(Store):
             "SELECT id FROM cves WHERE last_alert_state IS NOT NULL ORDER BY id")
         return [r[0] for r in rows]
 
+    def get_ids_missing_state_key(self, key: str) -> List[str]:
+        if not _STATE_KEY.match(str(key)):
+            raise StoreError(f"상태 키 이름이 올바르지 않다: {key!r}")
+        rows = self._query(
+            "SELECT id FROM cves WHERE last_alert_state IS NOT NULL "
+            f"AND json_extract(last_alert_state, '$.{key}') IS NULL ORDER BY updated_at DESC, id")
+        return [r[0] for r in rows]
+
     def get_rows_missing_vendor(self) -> List[Dict]:
         rows = self._query(
             "SELECT id, last_alert_state FROM cves "

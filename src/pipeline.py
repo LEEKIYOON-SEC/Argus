@@ -14,6 +14,7 @@ KST = pytz.timezone('Asia/Seoul')
 
 STATE_FIELDS = frozenset({
     "title", "title_ko", "description", "desc_ko", "cwe", "affected", "published",
+    "record_updated",
     "cvss_vector",
     "references", "_nuclei_url", "_exploit_db_url",
     "is_kev", "is_kev_ransomware", "kev_due_date", "is_vulncheck_kev",
