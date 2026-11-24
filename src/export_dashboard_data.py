@@ -51,6 +51,11 @@ def _tier_of(state: dict, entry: dict, verdict=None) -> str:
     stored = _s(state, "tier")
     if stored not in (risk.T0, risk.T1, risk.T2, risk.T3):
         return derived
+    if stored in risk.ALERTING_TIERS:
+        fired = [risk.TRIGGERS[k].tier for k in _l(state, "fired_triggers")
+                 if isinstance(k, str) and k in risk.ALERTING_TRIGGERS]
+        if fired:
+            stored = max(stored, min(fired, key=risk.tier_rank), key=risk.tier_rank)
     return min(stored, derived, key=risk.tier_rank)
 
 

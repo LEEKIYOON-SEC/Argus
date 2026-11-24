@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     outputs:
-      artifact: ${{ steps.carry.outcome }}
+      artifact: ${{ steps.upload.outcome }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -93,8 +93,14 @@ jobs:
         continue-on-error: true
         run: node src/build_context.js
 
-      - name: Upload Pages artifact
+      - name: Check code syntax
+        id: syntax
         if: always() && steps.carry.outcome == 'success'
+        run: python src/check_syntax.py
+
+      - name: Upload Pages artifact
+        id: upload
+        if: always() && steps.syntax.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs

@@ -52,5 +52,5 @@ def fetch_published_json(filename: str, timeout: int = _TIMEOUT):
 def write_json(path: str, payload) -> None:
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+        json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
     os.replace(tmp, path)

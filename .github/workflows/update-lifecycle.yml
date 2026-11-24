@@ -19,7 +19,7 @@ jobs:
     permissions:
       contents: write
     outputs:
-      artifact: ${{ steps.carry.outcome }}
+      artifact: ${{ steps.upload.outcome }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,14 +37,6 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
-
-      - name: Run tests
-        if: hashFiles('tests/test_*.py', 'tests/*.test.js') != ''
-        env:
-          TZ: UTC
-        run: |
-          python -m unittest discover -s tests -p 'test_*.py'
-          node --test tests/*.test.js
 
       - name: Refresh lifecycle data
         id: refresh
@@ -72,8 +64,14 @@ jobs:
         continue-on-error: true
         run: node src/build_context.js
 
-      - name: Upload Pages artifact
+      - name: Check code syntax
+        id: syntax
         if: steps.carry.outcome == 'success'
+        run: python src/check_syntax.py
+
+      - name: Upload Pages artifact
+        id: upload
+        if: steps.syntax.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs

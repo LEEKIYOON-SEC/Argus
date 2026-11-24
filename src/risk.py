@@ -35,8 +35,8 @@ _TRIGGERS: Tuple[Trigger, ...] = (
     Trigger("kev", T0, "CISA KEV 등재 — 실제 악용 확인"),
     Trigger("vulncheck_kev", T0, "VulnCheck KEV 등재 — 악용 근거 확보"),
     Trigger("ssvc_active", T0, "CISA SSVC Exploitation=active — 악용 진행형"),
-    Trigger("metasploit", T0, "Metasploit 모듈 공개 — 무기화됨"),
 
+    Trigger("metasploit", T1, "Metasploit 모듈 공개 — 무기화됨"),
     Trigger("nuclei", T1, "nuclei 템플릿 공개 — 대량 스캔·검증 가능"),
     Trigger("exploitdb", T1, "Exploit-DB 공개 익스플로잇 등재"),
     Trigger("epss_critical", T1, "EPSS 상위 1% (p99+) — 악용 확률 최상위"),
