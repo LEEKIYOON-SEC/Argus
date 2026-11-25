@@ -25,7 +25,7 @@ STATE_FIELDS = frozenset({
     "ai_discovered", "ai_program", "ai_detail", "ai_url", "analysis",
     "cvss", "cvss_version", "cvss_scores", "epss", "epss_percentile", "assigner",
     "tier", "fired_triggers",
-    "ko_tried",
+    "ko_tried", "ko_rule",
 })
 
 

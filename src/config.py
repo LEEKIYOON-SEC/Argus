@@ -54,6 +54,8 @@ class ArgusConfig:
 
         "translation_minutes": int(os.environ.get("ARGUS_TRANSLATION_MINUTES", "18")),
         "translation_daily_reserve": 0.15,
+        "translation_priority_days": 30,
+        "translation_regen_per_run": 60,
 
         "analysis_per_run": 100,
         "max_rule_recheck": 400,

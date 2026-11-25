@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import libsql
 
+import translation
 import turso_schema
 from fields import meaningful
 from logger import logger
@@ -256,17 +257,53 @@ class TursoStore(Store):
             "ORDER BY id LIMIT ? OFFSET ?", (max(1, limit), max(0, offset)))
         return [self._row(r, ("id", "last_alert_state")) for r in rows]
 
-    def update_translation(self, cve_id: str, title_ko: str, desc_ko: str) -> bool:
-        try:
-            n = self._write(
-                "UPDATE cves SET last_alert_state = json_set("
-                "  last_alert_state, '$.title_ko', ?, '$.desc_ko', ?) "
-                "WHERE id = ? AND last_alert_state IS NOT NULL",
-                (title_ko, desc_ko, cve_id))
-            return n > 0
-        except StoreError as e:
-            logger.warning(f"{cve_id} 번역 갱신 실패: {e}")
-            return False
+    _TRANSLATION_FIELDS = (
+        "json_object("
+        "'title', json_extract(last_alert_state, '$.title'), "
+        "'title_ko', json_extract(last_alert_state, '$.title_ko'), "
+        "'description', substr(json_extract(last_alert_state, '$.description'), 1, 1500), "
+        "'desc_ko', json_extract(last_alert_state, '$.desc_ko'), "
+        "'cwe', json_extract(last_alert_state, '$.cwe'), "
+        "'affected', json_array(json_extract(last_alert_state, '$.affected[0]'), "
+        "json_extract(last_alert_state, '$.affected[1]'), json_extract(last_alert_state, '$.affected[2]')), "
+        "'ko_tried', json_extract(last_alert_state, '$.ko_tried'), "
+        "'ko_rule', json_extract(last_alert_state, '$.ko_rule'), "
+        "'tier', tier, 'published', published)")
+    _SHOWN_TITLE = ("coalesce(nullif(json_extract(last_alert_state, '$.title_ko'), ''), "
+                    "json_extract(last_alert_state, '$.title'), '')")
+    _TIER_ORDER = "CASE tier WHEN 'T0' THEN 0 WHEN 'T1' THEN 1 WHEN 'T2' THEN 2 ELSE 3 END"
+
+    def _translation_rows(self, where: str, params: tuple, limit: int) -> List[Dict]:
+        rows = self._query(
+            f"SELECT id, {self._TRANSLATION_FIELDS} FROM cves "
+            f"WHERE last_alert_state IS NOT NULL AND {where} "
+            f"ORDER BY {self._TIER_ORDER}, coalesce(published, '') DESC, id DESC LIMIT ?",
+            params + (max(1, int(limit)),))
+        out = []
+        for cve_id, raw in rows:
+            try:
+                state = json.loads(raw) if raw else {}
+            except ValueError:
+                continue
+            state["affected"] = [a for a in state.get("affected") or [] if isinstance(a, dict)]
+            out.append({"id": cve_id, "last_alert_state": state})
+        return out
+
+    def get_translation_priority_candidates(self, limit: int, since: str, rule: int) -> List[Dict]:
+        return self._translation_rows(
+            f"{self._SHOWN_TITLE} NOT GLOB '*[가-힣]*' "
+            "AND (tier IN ('T0', 'T1') OR published >= ?) "
+            "AND NOT (coalesce(json_extract(last_alert_state, '$.ko_rule'), 0) >= ? "
+            "AND coalesce(json_extract(last_alert_state, '$.ko_tried'), '') != '' "
+            "AND json_extract(last_alert_state, '$.ko_tried') = "
+            f"coalesce(nullif(json_extract(last_alert_state, '$.title'), ''), {self._SHOWN_TITLE}))",
+            (since, int(rule)), limit)
+
+    def get_title_regen_candidates(self, limit: int, rule: int) -> List[Dict]:
+        return self._translation_rows(
+            f"trim(coalesce(json_extract(last_alert_state, '$.title_ko'), '')) GLOB ? "
+            "AND coalesce(json_extract(last_alert_state, '$.ko_rule'), 0) < ?",
+            (f"*{translation.GENERIC_SUFFIX}", int(rule)), limit)
 
     def get_missing_report_candidates(self, limit: int = 20) -> List[Dict]:
         cols = ("id", "cvss_score", "epss_score", "is_kev", "last_alert_state", "updated_at")
